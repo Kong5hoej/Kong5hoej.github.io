@@ -1,0 +1,48 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover" />
+    <title>Lost in space · Benjamin Kongshøj Hansen</title>
+    <meta name="robots" content="noindex" />
+    <!-- Absolute paths: GitHub Pages serves this file for any missing URL, at any depth. -->
+    <link rel="icon" href="/assets/favicon.svg" type="image/svg+xml" />
+    <link rel="preconnect" href="https://fonts.googleapis.com" />
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+    <link
+      rel="stylesheet"
+      href="https://fonts.googleapis.com/css2?family=Bricolage+Grotesque:opsz,wdth,wght@12..96,75..100,200..800&family=IBM+Plex+Mono:wght@400;500&family=Instrument+Serif:ital@0;1&display=swap"
+    />
+    <link rel="stylesheet" href="/assets/css/style.css" />
+    <script>
+      // Before first paint: mark JS as available, apply a saved theme, and
+      // play the intro (stars first, then content) on a fresh visit or a
+      // reload, but not when arriving from another page on this site.
+      (function (root) {
+        root.classList.add("js");
+        try {
+          var t = localStorage.getItem("theme");
+          if (t) root.dataset.theme = t;
+        } catch (e) {}
+        try {
+          var nav = performance.getEntriesByType("navigation")[0];
+          var internal = document.referrer.indexOf(location.origin + "/") === 0;
+          if (!internal || (nav && nav.type === "reload")) root.classList.add("intro");
+        } catch (e) {}
+      })(document.documentElement);
+    </script>
+    <script src="/assets/js/fx.js" defer></script>
+  </head>
+
+  <body>
+    <main class="container not-found">
+      <p class="kicker">Error 404 · Signal lost</p>
+      <h1 class="contact-title">Lost in <em>space</em>.</h1>
+      <p class="contact-text">This page doesn't exist, or it has drifted out of orbit. Let's get you back to familiar skies.</p>
+      <div class="hero-actions">
+        <a class="btn btn-primary" href="/" data-cursor="Home">Back to the front page</a>
+        <a class="btn" href="/cv.html" data-cursor="Read">View CV</a>
+      </div>
+    </main>
+  </body>
+</html>

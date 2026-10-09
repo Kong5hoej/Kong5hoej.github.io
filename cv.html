@@ -1,0 +1,58 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover" />
+    <title>CV · Benjamin Kongshøj Hansen</title>
+    <meta name="description" content="CV of Benjamin Kongshøj Hansen: experience, education and skills." />
+    <meta name="theme-color" content="#eef5f4" media="(prefers-color-scheme: light)" />
+    <meta name="theme-color" content="#061218" media="(prefers-color-scheme: dark)" />
+    <link rel="canonical" href="https://kong5hoej.github.io/cv.html" />
+    <meta property="og:type" content="profile" />
+    <meta property="og:url" content="https://kong5hoej.github.io/cv.html" />
+    <meta property="og:title" content="CV · Benjamin Kongshøj Hansen" />
+    <meta property="og:description" content="Experience, education and skills of Benjamin Kongshøj Hansen." />
+
+    <link rel="icon" href="assets/favicon.svg" type="image/svg+xml" />
+    <link rel="preconnect" href="https://fonts.googleapis.com" />
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+    <link
+      rel="stylesheet"
+      href="https://fonts.googleapis.com/css2?family=Bricolage+Grotesque:opsz,wdth,wght@12..96,75..100,200..800&family=IBM+Plex+Mono:wght@400;500&family=Instrument+Serif:ital@0;1&display=swap"
+    />
+    <link rel="stylesheet" href="assets/css/style.css" />
+    <script>
+      // Before first paint: mark JS as available, apply a saved theme, and
+      // play the intro (stars first, then content) on a fresh visit or a
+      // reload, but not when arriving from another page on this site.
+      (function (root) {
+        root.classList.add("js");
+        try {
+          var t = localStorage.getItem("theme");
+          if (t) root.dataset.theme = t;
+        } catch (e) {}
+        try {
+          var nav = performance.getEntriesByType("navigation")[0];
+          var internal = document.referrer.indexOf(location.origin + "/") === 0;
+          if (!internal || (nav && nav.type === "reload")) root.classList.add("intro");
+        } catch (e) {}
+      })(document.documentElement);
+    </script>
+  </head>
+
+  <body data-page="cv">
+    <a class="skip-link" href="#main">Skip to content</a>
+    <header class="site-header"></header>
+    <main id="main" class="container page">
+      <noscript>
+        <p>This CV needs JavaScript to render. Please enable it, or email me at
+          <a href="mailto:bkh2604@gmail.com">bkh2604@gmail.com</a>.</p>
+      </noscript>
+    </main>
+    <footer class="site-footer"></footer>
+
+    <script src="assets/js/content.js"></script>
+    <script src="assets/js/main.js"></script>
+    <script src="assets/js/fx.js"></script>
+  </body>
+</html>
