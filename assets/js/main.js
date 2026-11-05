@@ -52,6 +52,8 @@
     arrow: '<path d="M7 7h10v10"/><path d="M7 17 17 7"/>',
     right: '<path d="M5 12h14"/><path d="m12 5 7 7-7 7"/>',
     download: '<path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><path d="m7 10 5 5 5-5"/><path d="M12 15V3"/>',
+    gamepad:
+      '<line x1="6" x2="10" y1="11" y2="11"/><line x1="8" x2="8" y1="9" y2="13"/><line x1="15" x2="15.01" y1="12" y2="12"/><line x1="18" x2="18.01" y1="10" y2="10"/><path d="M17.32 5H6.68a4 4 0 0 0-3.978 3.59c-.006.052-.01.101-.017.152C2.604 9.416 2 14.456 2 16a3 3 0 0 0 3 3c1 0 1.5-.5 2-1l1.414-1.414A2 2 0 0 1 9.828 16h4.344a2 2 0 0 1 1.414.586L17 18c.5.5 1 1 2 1a3 3 0 0 0 3-3c0-1.545-.604-6.584-.685-7.258-.007-.05-.011-.1-.017-.151A4 4 0 0 0 17.32 5z"/>',
     // The code editor on the front page.
     files:
       '<path d="M20 7h-3a2 2 0 0 1-2-2V2"/><path d="M9 18a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h7l4 4v10a2 2 0 0 1-2 2Z"/><path d="M3 7.6v12.8A1.6 1.6 0 0 0 4.6 22h9.8"/>',
@@ -306,6 +308,10 @@
               <a class="btn btn-ghost" href="contact.html">Say hej</a>
               ${P.links.github ? `<a class="btn btn-ghost btn-icon" href="${esc(P.links.github)}" target="_blank" rel="noopener noreferrer" aria-label="GitHub" data-cursor="Visit">${icon("github")}</a>` : ""}
             </div>
+          </div>
+          <div class="hero-play">
+            <a class="btn btn-play" href="play.html" data-cursor="Play">${icon("gamepad")}Play my portfolio</a>
+            <p>Explore it all as a little pixel-art game.</p>
           </div>
         </div>
       </section>`;

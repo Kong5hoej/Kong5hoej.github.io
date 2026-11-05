@@ -1128,6 +1128,51 @@ body[data-page="home"] main {
   gap: 10px;
 }
 
+/* The way into Pixel Town (play.html). Wide screens have room to spare
+   under the name, so it goes there, with the name and it centred together
+   beside the column; narrower ones put it under the buttons. */
+.hero-play {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 10px 16px;
+  animation: rise 0.9s var(--ease-out) both;
+  animation-delay: calc(var(--intro) + 0.95s);
+}
+
+@media (min-width: 1000px) {
+  .hero-main {
+    grid-template-rows: 1fr auto auto 1fr;
+    row-gap: 0;
+  }
+  .hero-name {
+    grid-row: 2;
+  }
+  .hero-side {
+    grid-column: 2;
+    grid-row: 1 / -1;
+  }
+  .hero-play {
+    grid-column: 1;
+    grid-row: 3;
+    margin-top: clamp(20px, 3.5vh, 36px);
+  }
+}
+
+.hero-play p {
+  max-width: 24ch;
+  margin: 0;
+  font-size: 0.875rem;
+  line-height: 1.35;
+  color: var(--muted);
+}
+
+.btn-play,
+.btn-play:hover {
+  background: var(--gradient);
+  color: var(--on-accent);
+}
+
 /* Phones and narrower windows: the intro is centred. The editor window
    moves half its offset shadow to the left so the two together look
    centred, and its code stays left-aligned. */
@@ -1160,8 +1205,13 @@ body[data-page="home"] main {
   .hero-tagline {
     margin-inline: auto;
   }
-  .hero-actions {
+  .hero-actions,
+  .hero-play {
     justify-content: center;
+  }
+  .hero-play p {
+    max-width: none;
+    text-align: center;
   }
 }
 

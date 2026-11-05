@@ -1,0 +1,145 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover" />
+    <title>Benjamin Kongshøj Hansen · Pixel Town</title>
+    <meta name="description" content="Walk around Benjamin Kongshøj Hansen's pixel-art town: projects, experience, skills and contact details, as a little retro game." />
+    <meta name="theme-color" content="#1a1c2c" />
+    <link rel="canonical" href="https://kong5hoej.github.io/play.html" />
+    <meta property="og:type" content="website" />
+    <meta property="og:url" content="https://kong5hoej.github.io/play.html" />
+    <meta property="og:title" content="Benjamin Kongshøj Hansen · Pixel Town" />
+    <meta property="og:description" content="A portfolio you can walk around in." />
+
+    <link rel="icon" href="assets/favicon.svg" type="image/svg+xml" />
+    <link rel="preconnect" href="https://fonts.googleapis.com" />
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+    <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Pixelify+Sans:wght@400..700&family=Press+Start+2P&display=swap" />
+    <link rel="stylesheet" href="assets/css/play.css" />
+  </head>
+
+  <body data-mode="title">
+    <a class="skip" href="cv.html">Skip the game and read the CV</a>
+
+    <canvas id="game" role="img" aria-label="A pixel-art town to walk around. Every building opens a section of the portfolio; the map button lists them all."></canvas>
+    <div class="vignette" aria-hidden="true"></div>
+
+    <!-- Title screen -->
+    <section id="title" class="title" aria-labelledby="title-name">
+      <div class="title-inner">
+        <img id="title-avatar" class="title-avatar px" alt="" width="128" height="128" />
+        <p class="title-kicker">A portfolio you can walk around in</p>
+        <h1 id="title-name" class="logo">
+          <span class="logo-main"></span>
+          <span class="logo-sub"></span>
+        </h1>
+        <p class="title-role"></p>
+        <div class="title-menu">
+          <button id="start" class="px-btn is-primary is-big" type="button" autofocus><span class="tri" aria-hidden="true"></span>START</button>
+          <button id="quick" class="px-btn" type="button">QUICK MENU</button>
+          <a class="px-btn" href="cv.html">CV</a>
+        </div>
+        <p class="title-press" aria-hidden="true">PRESS START</p>
+      </div>
+      <p class="title-foot">© 2026 · Made in Denmark · <a href="index.html">Classic site</a></p>
+    </section>
+
+    <!-- HUD -->
+    <header id="hud" class="hud" hidden>
+      <button class="chip quest-chip" type="button" data-act="map" aria-label="Quest: meet Benjamin. Open the map.">
+        <span class="quest-label">MEET BENJAMIN</span>
+        <span id="quest-stars" class="stars" aria-hidden="true"></span>
+        <span id="quest-count"></span>
+      </button>
+      <div class="hud-tools">
+        <span class="chip bugs" title="Bugs squashed"><span class="bug-icon" aria-hidden="true"></span><span class="visually-hidden">Bugs squashed:</span><span id="bug-count">0</span></span>
+        <button class="chip" type="button" data-act="map">MAP <kbd>M</kbd></button>
+        <button class="chip" type="button" data-act="night">NIGHT</button>
+        <button class="chip" type="button" data-act="sound" aria-pressed="false">SOUND OFF</button>
+        <a class="chip" href="index.html">CLASSIC SITE</a>
+      </div>
+    </header>
+    <p class="keys" aria-hidden="true"><kbd>WASD</kbd>/<kbd>ARROWS</kbd> walk · <kbd>SHIFT</kbd> run · <kbd>SPACE</kbd> talk · <kbd>M</kbd> map · or just click</p>
+
+    <button id="prompt" class="prompt" type="button" hidden></button>
+    <p id="hover" class="hover" hidden aria-hidden="true"></p>
+
+    <!-- Dialogue -->
+    <div id="talk" class="talk frame" hidden>
+      <p id="talk-name" class="talk-name frame"></p>
+      <p id="talk-text" class="talk-text" aria-hidden="true"></p>
+      <p id="talk-sr" class="visually-hidden" aria-live="polite"></p>
+      <span class="talk-more" aria-hidden="true"></span>
+      <div id="talk-choices" class="talk-choices frame" role="listbox" aria-label="Answer" hidden></div>
+    </div>
+
+    <!-- Windows -->
+    <div id="layer" class="layer" hidden>
+      <section class="win frame" role="dialog" aria-modal="true" aria-labelledby="win-title" tabindex="-1">
+        <header class="win-head">
+          <h2 id="win-title"></h2>
+          <button class="win-close" type="button" aria-label="Close">CLOSE <kbd>ESC</kbd></button>
+        </header>
+        <div id="win-body" class="win-body"></div>
+      </section>
+    </div>
+
+    <!-- Wild bug battle -->
+    <div id="battle" class="battle" hidden role="dialog" aria-label="A wild bug appeared">
+      <div class="b-stage frame">
+        <div class="b-field">
+          <div class="b-foe">
+            <div class="b-card frame">
+              <p class="b-name" id="b-foe-name"></p>
+              <p class="b-lv">Lv.99</p>
+              <div class="hp"><span>HP</span><i><b id="b-foe-hp"></b></i></div>
+            </div>
+            <div class="b-mon"><span class="b-plat"></span><img id="b-foe-img" class="px" alt="" /></div>
+          </div>
+          <div class="b-me">
+            <div class="b-mon"><span class="b-plat"></span><img id="b-me-img" class="px" alt="" /></div>
+            <div class="b-card frame">
+              <p class="b-name is-me"></p>
+              <p class="b-lv">INTERN</p>
+              <div class="hp"><span>HP</span><i><b style="width: 100%"></b></i></div>
+            </div>
+          </div>
+        </div>
+        <div class="b-box">
+          <p id="b-text" class="b-text" aria-live="polite"></p>
+          <span class="talk-more" aria-hidden="true"></span>
+          <div id="b-menu" class="b-menu frame" hidden>
+            <button type="button" aria-selected="true">FIGHT</button>
+            <button type="button" aria-selected="false">RUN</button>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <!-- Touch controls -->
+    <div class="pad" aria-hidden="true">
+      <button type="button" data-dir="up" tabindex="-1"></button>
+      <button type="button" data-dir="left" tabindex="-1"></button>
+      <button type="button" data-dir="right" tabindex="-1"></button>
+      <button type="button" data-dir="down" tabindex="-1"></button>
+    </div>
+    <div class="ab" aria-hidden="true">
+      <button id="btn-b" type="button" tabindex="-1">B</button>
+      <button id="btn-a" type="button" tabindex="-1">A</button>
+    </div>
+
+    <div id="toast" class="toast frame" role="status" hidden></div>
+    <div id="fade" class="fade" aria-hidden="true"></div>
+
+    <noscript>
+      <p class="noscript">This little game needs JavaScript. Everything in it is also on the <a href="index.html">classic site</a> and in the <a href="cv.html">CV</a>.</p>
+    </noscript>
+
+    <!-- Content comes from content.js, the same file the rest of the site uses. -->
+    <script src="assets/js/content.js"></script>
+    <script src="assets/js/play-art.js"></script>
+    <script src="assets/js/play-world.js"></script>
+    <script src="assets/js/play-game.js"></script>
+  </body>
+</html>
