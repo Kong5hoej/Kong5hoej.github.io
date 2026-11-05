@@ -17,6 +17,14 @@
     <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
     <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Pixelify+Sans:wght@400..700&family=Press+Start+2P&display=swap" />
     <link rel="stylesheet" href="assets/css/play.css" />
+    <!-- The rest of the site crossfades between pages (see style.css). The
+         opt-in is inline so the browser has it in time: in play.css it was
+         sometimes read too late, and the fade was cancelled with an error. -->
+    <style>
+      @view-transition {
+        navigation: auto;
+      }
+    </style>
   </head>
 
   <body data-mode="title">
