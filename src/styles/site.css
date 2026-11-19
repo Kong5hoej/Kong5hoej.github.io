@@ -26,7 +26,7 @@
   --font-mono: "IBM Plex Mono", ui-monospace, "SFMono-Regular", Menlo, Consolas, monospace;
 
   --gutter: clamp(16px, 4vw, 80px);
-  --header-h: 72px;
+  --header-h: 80px;
   --ease-out: cubic-bezier(0.2, 0.8, 0.2, 1);
   --ease-in-out: cubic-bezier(0.7, 0, 0.2, 1);
 
@@ -97,11 +97,11 @@ html {
   scrollbar-gutter: stable;
 }
 
-/* Header, page and footer stack so the footer sits at the bottom of short
-   pages. Fixed layers (stars, cursor, menu) are outside this grid. */
+/* Header and page stack, and the page fills the rest of the screen. Fixed
+   layers (stars, cursor, menu) are outside this grid. */
 body {
   display: grid;
-  grid-template-rows: auto 1fr auto;
+  grid-template-rows: auto 1fr;
   min-height: 100vh;
   min-height: 100svh;
   margin: 0;
@@ -112,6 +112,12 @@ body {
   line-height: 1.55;
   -webkit-font-smoothing: antialiased;
   transition: background-color 0.4s;
+}
+
+/* React's root element stays out of the layout: header and main are the
+   grid's rows. */
+#root {
+  display: contents;
 }
 
 body.menu-open {
@@ -202,7 +208,6 @@ em {
    details stay selectable. */
 .site-header,
 .menu,
-.site-footer,
 .hero,
 .section-label,
 .page-title,
@@ -284,9 +289,7 @@ em {
 .index-year,
 .index-sub,
 .dock-links a,
-.theme-toggle,
 .btn-small,
-.site-footer,
 .cv-kicker,
 .cv-heading,
 .view-count,
@@ -301,12 +304,9 @@ em {
 
 /* ── Page transitions ──────────────────────────────────────────────────── */
 /* Navigating between pages crossfades instead of flashing (in browsers that
-   support cross-document view transitions). The header and the starfield
-   are named so they hold still while the page content changes. */
-
-@view-transition {
-  navigation: auto;
-}
+   support view transitions; the links ask React Router for one). The header
+   and the starfield are named so they hold still while the page content
+   changes. */
 
 .site-header {
   view-transition-name: site-header;
@@ -407,12 +407,13 @@ em {
   opacity: 0;
 }
 
-/* ── Header, menu & footer ─────────────────────────────────────────────── */
+/* ── Header & menu ─────────────────────────────────────────────────────── */
 
 .site-header {
   position: sticky;
   top: 0;
   z-index: 50;
+  overflow-x: clip; /* the sun or moon flying in from the right mustn't widen the page */
   border-bottom: 1px solid transparent;
   transition: background-color 0.3s, border-color 0.3s;
 }
@@ -456,8 +457,8 @@ em {
 .dock-slot {
   position: relative;
   justify-self: center;
-  width: 53px; /* rocket 42 + padding 2×4 + border 2×1.5 */
-  height: 53px;
+  width: 63px; /* rocket 52 + padding 2×4 + border 2×1.5 */
+  height: 63px;
 }
 
 .dock {
@@ -506,9 +507,9 @@ em {
 }
 
 .dock-links a {
-  padding: 9px 14px;
+  padding: 12px 17px;
   border-radius: 999px;
-  font-size: 0.72rem;
+  font-size: 0.8125rem;
   text-transform: uppercase;
   letter-spacing: 0.1em;
   white-space: nowrap;
@@ -532,8 +533,8 @@ em {
 .menu-rocket {
   display: grid;
   place-items: center;
-  width: 42px;
-  height: 42px;
+  width: 52px;
+  height: 52px;
   padding: 0;
   border: 0;
   border-radius: 50%;
@@ -556,8 +557,8 @@ em {
 }
 
 .rocket {
-  width: 21px;
-  height: 21px;
+  width: 26px;
+  height: 26px;
   animation: hover-float 3.2s ease-in-out infinite;
 }
 
@@ -593,9 +594,9 @@ em {
 }
 
 /* Without a mouse to hover with, or without room for the dock to grow to
-   the right (the open dock reaches the theme toggle below about 1180px),
+   the right (the open dock reaches the theme toggle below about 1340px),
    the rocket opens the full-screen menu instead. */
-@media (max-width: 1199px), (hover: none) {
+@media (max-width: 1359px), (hover: none) {
   .dock {
     display: none;
   }
@@ -604,36 +605,222 @@ em {
   }
 }
 
+/* The theme toggle: the sun by day, the moon by night (turning globes,
+   drawn by globe.ts). The sun's corona shimmers and both glow softly; a star
+   twinkles beside the moon. It lives in the sky like the stars: fx.ts
+   makes it float, rock in click pulses (--sky-x/y) and brighten as the
+   cursor nears (--near). On a fresh visit it rises in after the stars.
+   Clicking sends the current one up out of the sky and brings the other in
+   from the right along an arc, with a flare of light as it settles.
+   .has-moved is set by the first click. */
 .theme-toggle {
-  display: inline-flex;
-  align-items: center;
-  gap: 8px;
-  padding: 7px 10px;
-  border: 1.5px solid var(--ink);
-  background: transparent;
-  color: var(--ink);
-  font-size: 0.6875rem;
-  text-transform: uppercase;
-  letter-spacing: 0.1em;
-  cursor: pointer;
-}
-
-.theme-toggle:hover {
-  background: var(--ink);
-  color: var(--bg);
-}
-
-.tt-icon {
-  width: 11px;
-  height: 11px;
-  border: 1.5px solid currentColor;
+  position: relative;
+  width: 44px;
+  height: 44px;
+  zoom: 1.6; /* sizes everything inside (rays, craters, glow, flight paths) in one go */
+  padding: 0;
+  border: 0;
   border-radius: 50%;
-  background: linear-gradient(90deg, currentColor 50%, transparent 50%);
+  background: none;
+  cursor: pointer;
+  translate: var(--sky-x, 0) var(--sky-y, 0);
+  will-change: translate; /* moved every frame; keep it off the main paint */
 }
 
-@media (max-width: 760px) {
-  .tt-label {
-    display: none;
+.tt-sun,
+.tt-moon {
+  position: absolute;
+  inset: 0;
+  width: 24px;
+  height: 24px;
+  margin: auto;
+  border-radius: 50%;
+  opacity: 0;
+  pointer-events: none;
+  scale: calc(1 + 0.08 * var(--near, 0));
+  filter: brightness(calc(1 + 0.3 * var(--near, 0)));
+  animation: var(--glow);
+  transition: scale 0.3s var(--ease-out);
+}
+
+.tt-sun.is-on,
+.tt-moon.is-on {
+  opacity: 1;
+}
+
+.tt-sun canvas,
+.tt-moon canvas {
+  position: relative; /* above the corona */
+  display: block;
+  width: 100%;
+  height: 100%;
+}
+
+.theme-toggle:hover .is-on {
+  scale: 1.12;
+}
+
+.tt-sun {
+  --glow: tt-sun-glow 3s ease-in-out infinite alternate;
+  box-shadow: 0 0 10px 2px rgba(255, 190, 60, 0.6), 0 0 24px 6px rgba(255, 160, 40, 0.24); /* when motion is reduced */
+}
+
+/* The corona: fine, uneven streaks of glare fading outwards, blurred and
+   turning slowly so the light shimmers. */
+.tt-sun::before {
+  content: "";
+  position: absolute;
+  inset: -13px;
+  border-radius: 50%;
+  background:
+    repeating-conic-gradient(rgba(255, 214, 140, 0.4) 0 2deg, transparent 6deg 11deg),
+    repeating-conic-gradient(from 3deg, rgba(255, 236, 180, 0.3) 0 1deg, transparent 4deg 17deg),
+    radial-gradient(closest-side, rgba(255, 226, 160, 0.55), transparent);
+  -webkit-mask: radial-gradient(closest-side, #000 40%, transparent);
+  mask: radial-gradient(closest-side, #000 40%, transparent);
+  filter: blur(0.6px);
+  animation: tt-spin 60s linear infinite;
+}
+
+.tt-moon {
+  --glow: tt-moon-glow 4s ease-in-out infinite alternate;
+  box-shadow: 0 0 10px 2px rgba(225, 232, 240, 0.4), 0 0 26px 7px rgba(170, 200, 230, 0.14); /* when motion is reduced */
+}
+
+/* A star twinkling beside the moon. */
+.tt-moon::before {
+  content: "";
+  position: absolute;
+  top: -4px;
+  left: -5px;
+  width: 2.5px;
+  height: 2.5px;
+  border-radius: 50%;
+  background: #fff;
+  box-shadow: 0 0 3px 1px rgba(210, 230, 255, 0.85);
+  animation: tt-twinkle 2.6s ease-in-out infinite;
+}
+
+/* The flare of light as the new one settles. */
+.tt-sun::after,
+.tt-moon::after {
+  content: "";
+  position: absolute;
+  inset: -8px;
+  border-radius: 50%;
+  opacity: 0;
+}
+
+.tt-sun::after {
+  background: radial-gradient(closest-side, rgba(255, 240, 200, 0.9), rgba(255, 190, 80, 0.35) 55%, transparent);
+}
+
+.tt-moon::after {
+  background: radial-gradient(closest-side, rgba(240, 246, 255, 0.85), rgba(180, 210, 240, 0.3) 55%, transparent);
+}
+
+/* Rising in: sideways (transform) and upwards (translate) ease differently,
+   so together they trace an arc, like the sun coming up. The same rise,
+   slower, plays after the stars on a fresh visit. */
+.has-moved .is-on,
+.intro .theme-toggle:not(.has-moved) .is-on {
+  animation:
+    tt-rise-x var(--rise, 1.1s) cubic-bezier(0.25, 0.6, 0.3, 1) var(--rise-delay, 0.1s) backwards,
+    tt-rise-y var(--rise, 1.1s) cubic-bezier(0.1, 0.8, 0.25, 1) var(--rise-delay, 0.1s) backwards,
+    var(--glow);
+}
+
+.intro .theme-toggle:not(.has-moved) {
+  --rise: 1.8s;
+  --rise-delay: calc(var(--intro) + 0.5s);
+}
+
+/* Leaving: it lifts straight away and drifts sideways slowly, curving off
+   towards the top. */
+.has-moved :is(.tt-sun, .tt-moon):not(.is-on) {
+  animation:
+    tt-set-x 0.8s cubic-bezier(0.55, 0, 0.85, 0.4) both,
+    tt-set-y 0.8s cubic-bezier(0.3, 0.5, 0.5, 1) both;
+}
+
+.has-moved .is-on::after {
+  animation: tt-flash 0.9s var(--ease-out) 0.5s;
+}
+
+@keyframes tt-rise-x {
+  from {
+    opacity: 0;
+    transform: translateX(64px) scale(0.6);
+  }
+}
+
+@keyframes tt-rise-y {
+  from {
+    translate: 0 30px;
+  }
+}
+
+@keyframes tt-set-x {
+  from {
+    opacity: 1;
+    transform: none;
+  }
+  to {
+    opacity: 0;
+    transform: translateX(-26px) scale(0.7);
+  }
+}
+
+@keyframes tt-set-y {
+  to {
+    translate: 0 -72px;
+  }
+}
+
+@keyframes tt-flash {
+  from {
+    opacity: 1;
+    scale: 0.7;
+  }
+  to {
+    opacity: 0;
+    scale: 2;
+  }
+}
+
+@keyframes tt-sun-glow {
+  from {
+    box-shadow: 0 0 8px 1px rgba(255, 190, 60, 0.5), 0 0 20px 4px rgba(255, 160, 40, 0.18);
+  }
+  to {
+    box-shadow: 0 0 12px 3px rgba(255, 200, 70, 0.7), 0 0 30px 8px rgba(255, 160, 40, 0.3);
+  }
+}
+
+@keyframes tt-moon-glow {
+  from {
+    box-shadow: 0 0 8px 1px rgba(225, 232, 240, 0.32), 0 0 22px 5px rgba(170, 200, 230, 0.1);
+  }
+  to {
+    box-shadow: 0 0 12px 3px rgba(230, 236, 244, 0.5), 0 0 32px 9px rgba(170, 200, 230, 0.2);
+  }
+}
+
+@keyframes tt-spin {
+  to {
+    rotate: 1turn;
+  }
+}
+
+@keyframes tt-twinkle {
+  0%,
+  100% {
+    opacity: 0.25;
+    scale: 0.5;
+  }
+  50% {
+    opacity: 1;
+    scale: 1;
   }
 }
 
@@ -682,27 +869,6 @@ em {
   from {
     opacity: 0;
   }
-}
-
-.site-footer {
-  border-top: 1px solid var(--hairline);
-  padding-block: 16px calc(16px + env(safe-area-inset-bottom, 0px));
-  font-size: 0.6875rem;
-  text-transform: uppercase;
-  letter-spacing: 0.08em;
-  color: var(--muted);
-  background: color-mix(in srgb, var(--bg) 70%, transparent);
-}
-
-.footer-inner {
-  display: flex;
-  flex-wrap: wrap;
-  justify-content: space-between;
-  gap: 6px 24px;
-}
-
-.site-footer a {
-  color: var(--ink);
 }
 
 /* ── Buttons ───────────────────────────────────────────────────────────── */
@@ -939,8 +1105,7 @@ em {
 
 /* Fresh load: the stars come out first (fx.js), then the page. The home
    page choreographs its own pieces (see Home below). */
-.intro .site-header,
-.intro .site-footer {
+.intro .site-header {
   animation: fade-in 0.9s var(--ease-out) calc(var(--intro) + 0.4s) both;
 }
 
@@ -1128,7 +1293,7 @@ body[data-page="home"] main {
   gap: 10px;
 }
 
-/* The way into Pixel Town (play.html). Wide screens have room to spare
+/* The way into Pixel Town (/play). Wide screens have room to spare
    under the name, so it goes there, with the name and it centred together
    beside the column; narrower ones put it under the buttons. */
 .hero-play {
@@ -1159,12 +1324,30 @@ body[data-page="home"] main {
   }
 }
 
-.hero-play p {
-  max-width: 24ch;
-  margin: 0;
-  font-size: 0.875rem;
-  line-height: 1.35;
-  color: var(--muted);
+/* The controller constellation: the way into Pixel Town on wide screens,
+   drawn in the starfield (fx.ts paints its stars inside this box). It
+   replaces the button there; narrower screens have no sky to spare and
+   keep the button. */
+.star-pad {
+  display: none;
+}
+
+@media (min-width: 1260px) {
+  .hero-play {
+    position: relative;
+  }
+  .btn-play {
+    display: none;
+  }
+  .star-pad {
+    display: block;
+    position: absolute;
+    right: 0;
+    top: 50%;
+    width: clamp(180px, 13vw, 240px);
+    aspect-ratio: 2;
+    translate: 0 -50%;
+  }
 }
 
 .btn-play,
@@ -1208,10 +1391,6 @@ body[data-page="home"] main {
   .hero-actions,
   .hero-play {
     justify-content: center;
-  }
-  .hero-play p {
-    max-width: none;
-    text-align: center;
   }
 }
 
@@ -2596,7 +2775,6 @@ a.channel-value::after {
   .cursor-dot,
   .menu,
   .site-header,
-  .site-footer,
   .cv-toolbar,
   .skip-link {
     display: none !important;

@@ -1,81 +1,119 @@
-/* The game on play.html: a small top-down town to walk around, drawn by
-   play-art.js from the map in play-world.js. Every building opens a window
-   with real content from content.js, and nothing is locked behind playing:
-   the map (M) reaches every section, and a link like play.html#projects
-   (or #about, #work, #school, #skills, #contact, #map) opens one directly. */
-(function () {
-  "use strict";
+/* The game on /play: a small top-down town to walk around, drawn by art.ts
+   from the map in world.ts. Every building opens a window with real
+   content from content.ts, and nothing is locked behind playing: the map
+   (M) reaches every section, and a link like /play#projects (or #about,
+   #work, #school, #skills, #contact, #map) opens one directly.
 
-  const S = window.SITE;
-  const ART = window.PixelArt;
-  const TOWN = window.PixelTown;
-  if (!S || !ART || !TOWN) {
-    console.error("play.html needs content.js, play-art.js and play-world.js.");
-    return;
-  }
+   startPixelTown() runs the game inside the page Play.tsx renders, and
+   returns a function that stops it and cleans up after it. */
+import { SITE } from "../content.ts";
+import { dateRange, entryGroups, pad, prettyUrl, telHref, usesOf } from "../lib/cv.ts";
+import * as ART from "./art.ts";
+import { C, TILE as T, type Baked, type Frames, type MapModel } from "./art.ts";
+import { TOWN, type Dir, type Lines, type NpcDef, type Panel, type PlaceDef } from "./world.ts";
 
+interface Walker {
+  x: number;
+  y: number;
+  dir: Dir;
+  from: { x: number; y: number };
+  t: number;
+  moving: boolean;
+  step: number;
+  speed: number;
+  frames: Frames;
+}
+
+interface Npc extends Walker {
+  def: NpcDef;
+  idle: number;
+  talking: boolean;
+}
+
+interface Building extends PlaceDef {
+  x: number;
+  y: number;
+  x1: number;
+  y1: number;
+  w: number;
+  h: number;
+  door: { x: number; y: number };
+  front: { x: number; y: number };
+}
+
+interface Car {
+  x: number;
+  y: number;
+  body: string;
+  dark: string;
+  light: string;
+  lines: Lines;
+}
+
+type Thing =
+  | { kind: "npc"; npc: Npc }
+  | { kind: "building"; b: Building }
+  | { kind: "sign"; id: string }
+  | { kind: "car"; car: Car | undefined }
+  | { kind: "mailbox" | "fountain" | "net" | "lamp" | "duck" | "water" };
+
+interface WindowSpec {
+  title: string;
+  html: string;
+  setup?(body: HTMLElement): void;
+}
+
+export function startPixelTown(root: HTMLElement, go: (to: string) => void): () => void {
+  const S = SITE;
   const P = S.person;
-  const C = ART.C;
-  const T = ART.TILE;
-  const root = document.documentElement;
+  const html = document.documentElement;
   const still = window.matchMedia("(prefers-reduced-motion: reduce)").matches;
   const touch = window.matchMedia("(pointer: coarse)").matches;
-  root.classList.toggle("touch", touch);
-  const NAME = String(P.firstName || "Me").toUpperCase();
+  html.classList.toggle("touch", touch);
+  const NAME = (P.firstName || "Me").toUpperCase();
+
+  // Everything the game listens to, waits for or loops on stops with it.
+  const off = new AbortController();
+  const signal = off.signal;
+  let alive = true;
+  const timers = new Set<number>();
+  const later = (fn: () => void, ms: number) => {
+    const id = window.setTimeout(() => {
+      timers.delete(id);
+      fn();
+    }, ms);
+    timers.add(id);
+    return id;
+  };
+  const on = <K extends keyof HTMLElementEventMap>(el: EventTarget, type: K | string, fn: (e: HTMLElementEventMap[K]) => void) =>
+    el.addEventListener(type, fn as EventListener, { signal });
 
   /* ── Helpers ─────────────────────────────────────────────────────────── */
 
-  const $ = (sel, scope = document) => scope.querySelector(sel);
-  const $$ = (sel, scope = document) => Array.from(scope.querySelectorAll(sel));
+  const $ = <E extends Element = HTMLElement>(sel: string, scope: ParentNode = root) => scope.querySelector<E>(sel)!;
+  const $$ = <E extends Element = HTMLElement>(sel: string, scope: ParentNode = root) => Array.from(scope.querySelectorAll<E>(sel));
 
-  const ESC = { "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" };
-  const esc = (v) => String(v ?? "").replace(/[&<>"']/g, (c) => ESC[c]);
-  const rich = (v) => esc(v).replace(/\*(.+?)\*/g, "<em>$1</em>");
+  const ESC: Record<string, string> = { "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" };
+  const esc = (v: unknown) => String(v ?? "").replace(/[&<>"']/g, (c) => ESC[c]);
+  const rich = (v: string) => esc(v).replace(/\*(.+?)\*/g, "<em>$1</em>");
 
-  const clamp = (v, lo, hi) => Math.max(lo, Math.min(hi, v));
-  const wait = (ms) => new Promise((resolve) => setTimeout(resolve, ms));
-  const pad = (n, width = 2) => String(n).padStart(width, "0");
-  const url = (canvas) => canvas.toDataURL();
-  const lines = (v) => (typeof v === "function" ? v(S, touch) : v || []);
-
-  const prettyUrl = (u) => String(u).replace(/^https?:\/\/(www\.)?/, "").replace(/\/$/, "");
-  const telHref = (phone) => `tel:${String(phone).replace(/[^\d+]/g, "")}`;
-
-  const MONTH = new Intl.DateTimeFormat("en-US", { month: "short", year: "numeric" });
-  function fmtDate(value) {
-    if (!value) return "Present";
-    const [y, m] = String(value).split("-").map(Number);
-    return m ? MONTH.format(new Date(y, m - 1)) : String(y);
-  }
-  const dateRange = (e) => (e.start ? `${fmtDate(e.start)} – ${fmtDate(e.end)}` : fmtDate(e.end));
-  const sortKey = (v) => (v ? String(v).padEnd(7, "-13") : "9999-99");
-  const byRecent = (a, b) =>
-    sortKey(b.end).localeCompare(sortKey(a.end)) || sortKey(b.start).localeCompare(sortKey(a.start));
-
-  // Where a tool has been used, as on the Toolbox page (see main.js).
-  function usesOf(tool) {
-    const cv = S.cv || {};
-    const name = tool.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
-    const re = new RegExp(`(^|[^\\w#+.])${name}(?![\\w#+])`);
-    const mentions = (list) => re.test((list || []).join(" "));
-    const work = (cv.experience || []).filter((e) => mentions(e.bullets));
-    return {
-      projects: (S.projects || []).filter((p) => (p.tags || []).includes(tool) || mentions([p.description])),
-      work: [...new Set(work.map((e) => e.org))],
-      study: [...new Set((cv.education || []).filter((e) => mentions(e.details)).map((e) => e.school))],
-      now: work.some((e) => !e.end),
-    };
-  }
+  const clamp = (v: number, lo: number, hi: number) => Math.max(lo, Math.min(hi, v));
+  const wait = (ms: number) => new Promise<void>((resolve) => later(resolve, ms));
+  const url = (c: HTMLCanvasElement) => c.toDataURL();
+  const lines = (v: Lines | undefined) => (typeof v === "function" ? v(S, touch) : v || []);
 
   /* ── Saved progress ──────────────────────────────────────────────────── */
 
   const SAVE_KEY = "pixel-town";
-  const save = Object.assign({ visited: [], squashed: 0, sound: false, done: false, night: null }, readSave());
+  const save: { visited: string[]; squashed: number; sound: boolean; done: boolean; night: boolean | null } = Object.assign(
+    { visited: [], squashed: 0, sound: false, done: false, night: null },
+    readSave()
+  );
 
   function readSave() {
     try {
-      return JSON.parse(localStorage.getItem(SAVE_KEY)) || {};
-    } catch (_) {
+      return JSON.parse(localStorage.getItem(SAVE_KEY) || "null") || {};
+    } catch {
       return {};
     }
   }
@@ -83,7 +121,7 @@
   function store() {
     try {
       localStorage.setItem(SAVE_KEY, JSON.stringify(save));
-    } catch (_) {
+    } catch {
       /* storage unavailable: progress just isn't kept */
     }
   }
@@ -93,20 +131,20 @@
   const MAP = TOWN.map;
   const MW = MAP[0].length;
   const MH = MAP.length;
-  const inside = (x, y) => x >= 0 && y >= 0 && x < MW && y < MH;
-  const at = (x, y) => (inside(x, y) ? MAP[y][x] : "T");
+  const inside = (x: number, y: number) => x >= 0 && y >= 0 && x < MW && y < MH;
+  const at = (x: number, y: number) => (inside(x, y) ? MAP[y][x] : "T");
 
   // Buildings: a capital letter from `places` marks the footprint, and the
   // same letter in lower case is the door.
-  const found = {};
-  const buildingAt = new Map();
+  const found: Record<string, Building> = {};
+  const buildingAt = new Map<number, Building>();
   for (let y = 0; y < MH; y++) {
     for (let x = 0; x < MW; x++) {
       const ch = at(x, y);
       const key = ch.toUpperCase();
       const def = TOWN.places[key];
       if (!def || (ch !== key && ch !== key.toLowerCase())) continue;
-      const b = found[key] || (found[key] = Object.assign({}, def, { x, y, x1: x, y1: y, door: null }));
+      const b = (found[key] ||= { ...def, x, y, x1: x, y1: y, w: 0, h: 0, door: { x: -1, y: -1 }, front: { x: -1, y: -1 } });
       b.x = Math.min(b.x, x);
       b.y = Math.min(b.y, y);
       b.x1 = Math.max(b.x1, x);
@@ -115,51 +153,53 @@
       buildingAt.set(y * MW + x, b);
     }
   }
-  const buildings = TOWN.order.map((id) => Object.values(found).find((b) => b.id === id)).filter((b) => b && b.door);
+  const buildings = TOWN.order.map((id) => Object.values(found).find((b) => b.id === id)).filter((b): b is Building => !!b && b.door.x >= 0);
   buildings.forEach((b) => {
     b.w = b.x1 - b.x + 1;
     b.h = b.y1 - b.y + 1;
     b.front = { x: b.door.x, y: b.door.y + 1 };
   });
   const byId = Object.fromEntries(buildings.map((b) => [b.id, b]));
-  const buildingOf = (x, y) => (inside(x, y) && buildingAt.get(y * MW + x)) || null;
+  const buildingOf = (x: number, y: number) => (inside(x, y) && buildingAt.get(y * MW + x)) || null;
+  // Only the buildings count towards the tour.
+  const visitedCount = () => buildings.filter((b) => save.visited.includes(b.id)).length;
 
-  const cars = [];
-  const fountains = [];
-  const flowerTiles = [];
-  const waterTiles = [];
+  const cars: Car[] = [];
+  const fountains: { x: number; y: number }[] = [];
+  const flowerTiles: { x: number; y: number }[] = [];
+  const waterTiles: { x: number; y: number }[] = [];
   for (let y = 0; y < MH; y++) {
     for (let x = 0; x < MW; x++) {
       const ch = at(x, y);
-      if (ch === "v" && at(x - 1, y) !== "v") cars.push(Object.assign({ x, y }, TOWN.cars[cars.length % TOWN.cars.length]));
+      if (ch === "v" && at(x - 1, y) !== "v") cars.push({ x, y, ...TOWN.cars[cars.length % TOWN.cars.length] });
       if (ch === "F" && at(x - 1, y) !== "F" && at(x, y - 1) !== "F") fountains.push({ x, y });
       if (ch === ":") flowerTiles.push({ x, y });
       if (ch === "~") waterTiles.push({ x, y });
     }
   }
-  const carAt = (x, y) => cars.find((c) => c.y === y && (c.x === x || c.x + 1 === x));
+  const carAt = (x: number, y: number) => cars.find((c) => c.y === y && (c.x === x || c.x + 1 === x));
   const duck = TOWN.duck;
 
-  const model = { w: MW, h: MH, at, isBuilding: (x, y) => !!buildingOf(x, y), buildings, cars, fountains };
+  const model: MapModel = { w: MW, h: MH, at, isBuilding: (x, y) => !!buildingOf(x, y), buildings, cars, fountains };
 
   // The map is baked once for day and once for night, on first use.
   let night = typeof save.night === "boolean" ? save.night : new Date().getHours() >= 20 || new Date().getHours() < 7;
-  const bakes = {};
+  const bakes: Partial<Record<"day" | "night", Baked>> = {};
   const baked = () => {
     const key = night ? "night" : "day";
-    return bakes[key] || (bakes[key] = ART.bakeMap(model, night));
+    return (bakes[key] ||= ART.bakeMap(model, night));
   };
 
   /* ── Canvas ──────────────────────────────────────────────────────────── */
   // Everything is drawn into `view` at art resolution, then copied to the
   // screen at a whole number of device pixels per art pixel.
 
-  const screen = $("#game");
-  const sg = screen.getContext("2d");
+  const screen = $<HTMLCanvasElement>("#game");
+  const sg = screen.getContext("2d")!;
   const view = document.createElement("canvas");
-  const vg = view.getContext("2d");
+  const vg = view.getContext("2d")!;
   const shade = document.createElement("canvas"); // the dark of night, with holes for the lights
-  const hg = shade.getContext("2d");
+  const hg = shade.getContext("2d")!;
   let scale = 4;
 
   function resize() {
@@ -181,27 +221,25 @@
 
   /* ── People ──────────────────────────────────────────────────────────── */
 
-  const DIRS = { up: [0, -1], down: [0, 1], left: [-1, 0], right: [1, 0] };
-  const OPPOSITE = { up: "down", down: "up", left: "right", right: "left" };
+  const DIRS: Record<Dir, [number, number]> = { up: [0, -1], down: [0, 1], left: [-1, 0], right: [1, 0] };
+  const OPPOSITE: Record<Dir, Dir> = { up: "down", down: "up", left: "right", right: "left" };
   const FLOOR = new Set([".", ":", '"', "=", ">", "_", "q"]);
 
-  function walker(x, y, dir, look) {
+  function walker(x: number, y: number, dir: Dir, look: ART.Look): Walker {
     return { x, y, dir, from: { x, y }, t: 1, moving: false, step: 0, speed: 4.6, frames: ART.character(look) };
   }
 
   const player = walker(TOWN.start.x, TOWN.start.y, TOWN.start.dir, TOWN.look);
-  const npcs = TOWN.npcs.map((def) =>
-    Object.assign(walker(def.x, def.y, def.dir, def.look), { def, idle: 1 + Math.random() * 3, speed: 2.6, talking: false })
-  );
-  const walkers = [player, ...npcs];
+  const npcs: Npc[] = TOWN.npcs.map((def) => ({ ...walker(def.x, def.y, def.dir, def.look), def, idle: 1 + Math.random() * 3, speed: 2.6, talking: false }));
+  const walkers: Walker[] = [player, ...npcs];
   // People keep out of the way of doors.
   const doorstep = new Set(buildings.map((b) => b.front.y * MW + b.front.x));
 
-  const occupied = (x, y, self) =>
+  const occupied = (x: number, y: number, self: Walker) =>
     walkers.some((w) => w !== self && ((w.x === x && w.y === y) || (w.moving && w.from.x === x && w.from.y === y)));
-  const open = (x, y, self) => FLOOR.has(at(x, y)) && !occupied(x, y, self);
+  const open = (x: number, y: number, self: Walker) => FLOOR.has(at(x, y)) && !occupied(x, y, self);
 
-  function step(w, dir) {
+  function step(w: Walker, dir: Dir) {
     w.dir = dir;
     const [dx, dy] = DIRS[dir];
     if (!open(w.x + dx, w.y + dy, w)) return false;
@@ -216,7 +254,7 @@
 
   // Moves `w` along its step. Returns the time left over once it arrives,
   // or -1 while it's still on the way (or standing still).
-  function advance(w, dt) {
+  function advance(w: Walker, dt: number) {
     if (!w.moving) return -1;
     w.t += dt * w.speed;
     if (w.t < 1) return -1;
@@ -226,13 +264,13 @@
     return left;
   }
 
-  const pos = (w) => ({ x: (w.from.x + (w.x - w.from.x) * w.t) * T, y: (w.from.y + (w.y - w.from.y) * w.t) * T });
+  const pos = (w: Walker) => ({ x: (w.from.x + (w.x - w.from.x) * w.t) * T, y: (w.from.y + (w.y - w.from.y) * w.t) * T });
 
-  function teleport(x, y, dir) {
+  function teleport(x: number, y: number, dir: Dir) {
     Object.assign(player, { x, y, from: { x, y }, t: 1, moving: false, dir });
   }
 
-  const dirTo = (x, y) => {
+  const dirTo = (x: number, y: number): Dir => {
     const dx = x - player.x;
     const dy = y - player.y;
     return Math.abs(dx) > Math.abs(dy) ? (dx > 0 ? "right" : "left") : dy > 0 ? "down" : "up";
@@ -241,19 +279,21 @@
   /* ── State ───────────────────────────────────────────────────────────── */
 
   // title → play, with talk, window and battle on top of play.
-  let mode = "title";
+  type Mode = "title" | "play" | "talk" | "window" | "battle" | "busy";
+  let mode: Mode = "title";
   let clock = 0;
   let idle = 0; // how long you've stood still
-  let route = []; // directions still to walk
-  let goal = null; // { goals, face, then, grass } for the walk in progress
-  let marker = null; // where a click sent you
+  let route: Dir[] = []; // directions still to walk
+  let goal: { goals: { x: number; y: number }[]; face: Dir | null; then: (() => void) | null; grass: boolean } | null = null;
+  let marker: { x: number; y: number } | null = null; // where a click sent you
   let grassSteps = 0;
   let nextEncounter = 3;
   let lastBug = -1;
   let lastBump = 0;
   let blink = 2;
 
-  function setMode(next) {
+  function setMode(next: Mode) {
+    if (!alive) return;
     mode = next;
     document.body.dataset.mode = next;
     if (next !== "play") {
@@ -264,18 +304,18 @@
 
   /* ── Input ───────────────────────────────────────────────────────────── */
 
-  const held = []; // directions held down, the latest last
-  const pressedAt = {};
+  const held: Dir[] = []; // directions held down, the latest last
+  const pressedAt: Partial<Record<Dir, number>> = {};
   let running = false;
 
-  const KEY_DIRS = {
+  const KEY_DIRS: Record<string, Dir> = {
     ArrowUp: "up", KeyW: "up", ArrowDown: "down", KeyS: "down",
     ArrowLeft: "left", KeyA: "left", ArrowRight: "right", KeyD: "right",
   };
   const KEY_A = new Set(["Space", "Enter", "NumpadEnter", "KeyE", "KeyZ"]);
   const KEY_B = new Set(["Escape", "KeyX"]);
 
-  function press(dir) {
+  function press(dir: Dir) {
     if (!held.includes(dir)) {
       held.push(dir);
       pressedAt[dir] = performance.now();
@@ -285,7 +325,7 @@
     marker = null;
   }
 
-  function release(dir) {
+  function release(dir: Dir) {
     const i = held.indexOf(dir);
     if (i >= 0) held.splice(i, 1);
   }
@@ -305,7 +345,7 @@
     else if (mode === "battle") battleB();
   }
 
-  document.addEventListener("keydown", (e) => {
+  on<"keydown">(document, "keydown", (e) => {
     if (e.altKey || e.ctrlKey || e.metaKey) return;
     const target = e.target instanceof Element ? e.target : document.body;
     if (target.closest("input, textarea, select")) return;
@@ -359,28 +399,28 @@
     else if (e.code === "KeyN") toggleNight();
   });
 
-  document.addEventListener("keyup", (e) => {
+  on<"keyup">(document, "keyup", (e) => {
     const dir = KEY_DIRS[e.code];
     if (dir) release(dir);
     if (e.key === "Shift") running = false;
   });
 
-  window.addEventListener("blur", () => {
+  on(window, "blur", () => {
     held.length = 0;
     running = false;
   });
 
   // Clicking (or tapping) the town walks you there, and to whatever you
   // clicked on.
-  function tileAt(e) {
+  function tileAt(e: MouseEvent) {
     const r = screen.getBoundingClientRect();
     const x = (e.clientX - r.left) * (view.width / r.width) + cam.rx;
     const y = (e.clientY - r.top) * (view.height / r.height) + cam.ry;
     return { x: Math.floor(x / T), y: Math.floor(y / T) };
   }
 
-  screen.addEventListener("click", (e) => {
-    if (mode === "title") return startGame();
+  on<"click">(screen, "click", (e) => {
+    if (mode === "title") return void startGame();
     if (mode !== "play") return;
     const { x, y } = tileAt(e);
     clickTile(x, y);
@@ -394,7 +434,7 @@
     screen.style.cursor = "";
   }
 
-  screen.addEventListener("pointermove", (e) => {
+  on<"pointermove">(screen, "pointermove", (e) => {
     if (e.pointerType !== "mouse" || mode !== "play") return hideHover();
     const { x, y } = tileAt(e);
     const thing = thingAt(x, y);
@@ -407,23 +447,23 @@
       hover.hidden = !label;
     }
   });
-  screen.addEventListener("pointerleave", hideHover);
+  on(screen, "pointerleave", hideHover);
 
   /* ── Walking somewhere ───────────────────────────────────────────────── */
 
   // Shortest walk (as directions) from you to any of `goals`. Avoids tall
   // grass unless `grass` is set, and never leaves town by accident.
-  function findRoute(goals, grass) {
+  function findRoute(goals: { x: number; y: number }[], grass: boolean): Dir[] | null {
     const want = new Set(goals.map((g) => g.y * MW + g.x));
     const start = player.y * MW + player.x;
     if (want.has(start)) return [];
-    const prev = new Map([[start, null]]);
+    const prev = new Map<number, [number, Dir] | null>([[start, null]]);
     const queue = [start];
     for (let i = 0; i < queue.length; i++) {
       const k = queue[i];
       const x = k % MW;
       const y = (k / MW) | 0;
-      for (const dir in DIRS) {
+      for (const dir of Object.keys(DIRS) as Dir[]) {
         const nx = x + DIRS[dir][0];
         const ny = y + DIRS[dir][1];
         const nk = ny * MW + nx;
@@ -432,8 +472,8 @@
         if (!want.has(nk) && ((ch === '"' && !grass) || ch === ">")) continue;
         prev.set(nk, [k, dir]);
         if (want.has(nk)) {
-          const dirs = [];
-          for (let c = nk; prev.get(c); c = prev.get(c)[0]) dirs.unshift(prev.get(c)[1]);
+          const dirs: Dir[] = [];
+          for (let c = nk; prev.get(c); c = prev.get(c)![0]) dirs.unshift(prev.get(c)![1]);
           return dirs;
         }
         queue.push(nk);
@@ -443,7 +483,7 @@
   }
 
   // Walks to one of `goals`, then faces `face` and calls `then`.
-  function travel(goals, face, then) {
+  function travel(goals: { x: number; y: number }[], face: Dir | null, then: (() => void) | null) {
     const grass = goals.some((g) => at(g.x, g.y) === '"');
     const r = findRoute(goals, grass);
     if (!r) return false;
@@ -453,30 +493,30 @@
   }
 
   function finishGoal() {
-    const g = goal;
+    const g = goal!;
     goal = null;
     marker = null;
     if (g.face) player.dir = g.face;
     if (g.then) g.then();
   }
 
-  function walkTo(b) {
+  function walkTo(b: Building) {
     if (travel([b.front], "up", () => enter(b))) return;
     // No way through (someone's in the way): skip the walk.
     dip(() => teleport(b.front.x, b.front.y, "up")).then(() => enter(b));
   }
 
   // The tiles a thing covers, so you can walk up to any side of it.
-  function footprint(thing, x, y) {
+  function footprint(thing: Thing, x: number, y: number) {
     if (thing.kind === "fountain") {
       const f = fountains.find((fo) => x >= fo.x && x < fo.x + 3 && y >= fo.y && y < fo.y + 3);
       if (f) return Array.from({ length: 9 }, (_, i) => ({ x: f.x + (i % 3), y: f.y + ((i / 3) | 0) }));
     }
-    if (thing.kind === "car") return [{ x: thing.car.x, y: thing.car.y }, { x: thing.car.x + 1, y: thing.car.y }];
+    if (thing.kind === "car" && thing.car) return [{ x: thing.car.x, y: thing.car.y }, { x: thing.car.x + 1, y: thing.car.y }];
     return [{ x, y }];
   }
 
-  function clickTile(x, y) {
+  function clickTile(x: number, y: number) {
     const thing = thingAt(x, y);
     marker = { x, y };
     if (thing && thing.kind === "building") {
@@ -485,7 +525,7 @@
     }
     if (thing) {
       const tiles = footprint(thing, x, y);
-      const spots = [];
+      const spots: { x: number; y: number }[] = [];
       tiles.forEach((t) =>
         Object.values(DIRS).forEach(([dx, dy]) => {
           const sx = t.x - dx;
@@ -510,7 +550,7 @@
 
   /* ── Things to look at ───────────────────────────────────────────────── */
 
-  function thingAt(x, y) {
+  function thingAt(x: number, y: number): Thing | null {
     const npc = npcs.find((n) => n.x === x && n.y === y);
     if (npc) return { kind: "npc", npc };
     const b = buildingOf(x, y);
@@ -527,7 +567,7 @@
     return null;
   }
 
-  function labelOf(thing) {
+  function labelOf(thing: Thing): [string, string] {
     switch (thing.kind) {
       case "building":
         return ["ENTER", thing.b.label];
@@ -559,7 +599,7 @@
     if (thing) interact(thing);
   }
 
-  async function interact(thing) {
+  async function interact(thing: Thing) {
     route = [];
     goal = null;
     marker = null;
@@ -596,7 +636,7 @@
     }
   }
 
-  async function enter(b) {
+  async function enter(b: Building) {
     route = [];
     goal = null;
     marker = null;
@@ -609,7 +649,7 @@
     });
   }
 
-  function visit(id) {
+  function visit(id: string) {
     if (save.visited.includes(id)) return;
     save.visited.push(id);
     store();
@@ -621,10 +661,7 @@
       { label: "YES", value: true },
       { label: "NO", value: false },
     ]);
-    if (pick) {
-      location.href = "index.html";
-      return;
-    }
+    if (pick) return go("/");
     step(player, "left");
   }
 
@@ -637,7 +674,7 @@
       { label: "CONTACT ME", value: "contact" },
       { label: "KEEP EXPLORING", value: null },
     ]);
-    if (pick && byId[pick]) openWindow(byId[pick].panel, byId[pick]);
+    if (typeof pick === "string" && byId[pick]) openWindow(byId[pick].panel, byId[pick]);
   }
 
   /* ── Dialogue ────────────────────────────────────────────────────────── */
@@ -647,15 +684,25 @@
   const talkText = $("#talk-text");
   const talkSr = $("#talk-sr");
   const talkChoices = $("#talk-choices");
-  let talk = null;
+  type Choice = { label: string; value: unknown };
+  let talk: {
+    who: string | null;
+    pages: string[];
+    i: number;
+    choices: Choice[] | null;
+    pick: number;
+    resolve: (v: unknown) => void;
+    text: string;
+    shown: number;
+  } | null = null;
 
   // Shows `pages` one at a time in the text box, typed out. With `choices`
   // ([{ label, value }]) the last page asks, and the promise gives the value.
-  function say(who, pages, choices) {
+  function say(who: string | null, pages: string[], choices?: Choice[]): Promise<unknown> {
     const list = (pages || []).filter(Boolean);
     if (!list.length) return Promise.resolve();
     return new Promise((resolve) => {
-      talk = { who, pages: list, i: 0, choices: choices || null, pick: 0, resolve };
+      talk = { who, pages: list, i: 0, choices: choices || null, pick: 0, resolve, text: "", shown: 0 };
       setMode("talk");
       talkEl.hidden = false;
       talkName.hidden = !who;
@@ -665,16 +712,17 @@
   }
 
   function showPage() {
-    talk.text = talk.pages[talk.i];
-    talk.shown = still ? talk.text.length : 0;
-    talkText.textContent = still ? talk.text : "";
-    talkSr.textContent = (talk.who ? `${talk.who}: ` : "") + talk.text;
+    const t = talk!;
+    t.text = t.pages[t.i];
+    t.shown = still ? t.text.length : 0;
+    talkText.textContent = still ? t.text : "";
+    talkSr.textContent = (t.who ? `${t.who}: ` : "") + t.text;
     talkEl.classList.remove("is-done");
     talkChoices.hidden = true;
     if (still) pageDone();
   }
 
-  function typeTalk(dt) {
+  function typeTalk(dt: number) {
     if (!talk || talk.shown >= talk.text.length) return;
     const before = Math.floor(talk.shown);
     talk.shown = Math.min(talk.text.length, talk.shown + dt * 55);
@@ -686,20 +734,21 @@
   }
 
   function pageDone() {
-    talkText.textContent = talk.text;
+    const t = talk!;
+    talkText.textContent = t.text;
     talkEl.classList.add("is-done");
-    if (talk.choices && talk.i === talk.pages.length - 1) {
-      talkChoices.innerHTML = talk.choices
-        .map((c, i) => `<button class="choice" type="button" tabindex="-1" data-i="${i}" aria-selected="${i === talk.pick}">${esc(c.label)}</button>`)
+    if (t.choices && t.i === t.pages.length - 1) {
+      talkChoices.innerHTML = t.choices
+        .map((c, i) => `<button class="choice" type="button" tabindex="-1" data-i="${i}" aria-selected="${i === t.pick}">${esc(c.label)}</button>`)
         .join("");
       talkChoices.hidden = false;
     }
   }
 
-  function moveChoice(d) {
+  function moveChoice(d: number) {
     if (!talk || !talk.choices || talkChoices.hidden) return;
     talk.pick = (talk.pick + d + talk.choices.length) % talk.choices.length;
-    $$(".choice", talkChoices).forEach((b, i) => b.setAttribute("aria-selected", String(i === talk.pick)));
+    $$(".choice", talkChoices).forEach((b, i) => b.setAttribute("aria-selected", String(i === talk!.pick)));
     sfx("blip");
   }
 
@@ -723,12 +772,12 @@
   function talkBack() {
     if (!talk) return;
     const asking = talk.choices && talk.i === talk.pages.length - 1 && talk.shown >= talk.text.length;
-    if (asking) endTalk(talk.choices[talk.choices.length - 1].value);
+    if (asking) endTalk(talk.choices![talk.choices!.length - 1].value);
     else talkNext();
   }
 
-  function endTalk(value) {
-    const t = talk;
+  function endTalk(value: unknown) {
+    const t = talk!;
     talk = null;
     talkEl.hidden = true;
     talkChoices.hidden = true;
@@ -736,10 +785,10 @@
     t.resolve(value);
   }
 
-  talkEl.addEventListener("click", (e) => {
-    if (mode !== "talk") return;
-    const choice = e.target.closest(".choice");
-    if (choice) endTalk(talk.choices[+choice.dataset.i].value);
+  on<"click">(talkEl, "click", (e) => {
+    if (mode !== "talk" || !talk) return;
+    const choice = (e.target as Element).closest<HTMLElement>(".choice");
+    if (choice) endTalk(talk.choices![+choice.dataset.i!].value);
     else talkNext();
   });
 
@@ -755,13 +804,13 @@
     [C.red, C.white], [C.orange, C.ink], [C.yellow, C.ink], [C.green, C.ink], [C.teal, C.white],
     [C.blue, C.white], [C.sky, C.ink], [C.plum, C.white], [C.slate, C.white], [C.lime, C.ink],
   ];
-  const typeStyle = (tag) => {
+  const typeStyle = (tag: string) => {
     const [bg, fg] = TYPES[ART.hash([...tag].reduce((n, c) => n * 31 + c.charCodeAt(0), 7)) % TYPES.length];
     return `--type:${bg};--type-ink:${fg}`;
   };
 
-  function itemCode(name) {
-    const known = {
+  function itemCode(name: string) {
+    const known: Record<string, string> = {
       JavaScript: "JS", TypeScript: "TS", Python: "PY", Assembly: "ASM", PostgreSQL: "SQL", "Node.js": "NODE",
       "Next.js": "NEXT", "GitHub Actions": "CI", "VS Code": "VSC", "Unified Process": "UP", Scrum: "SCRM", React: "RCT",
     };
@@ -771,15 +820,17 @@
     return caps.length >= 2 ? caps.join("").slice(0, 4) : name.slice(0, 3).toUpperCase();
   }
 
-  function links(which) {
-    const L = P.links || {};
+  // Links out of the game. The site's own pages open inside the app (see
+  // the click handler on the window below).
+  function links(which: ("cv" | "classic" | "github" | "linkedin")[]) {
+    const L = P.links;
     const all = {
-      cv: { href: "cv.html", label: "CV" },
-      classic: { href: "index.html", label: "CLASSIC SITE" },
-      github: L.github && { href: L.github, label: "GITHUB", ext: true },
-      linkedin: L.linkedin && { href: L.linkedin, label: "LINKEDIN", ext: true },
+      cv: { href: "/cv", label: "CV", ext: false },
+      classic: { href: "/", label: "CLASSIC SITE", ext: false },
+      github: L.github ? { href: L.github, label: "GITHUB", ext: true } : null,
+      linkedin: L.linkedin ? { href: L.linkedin, label: "LINKEDIN", ext: true } : null,
     };
-    const items = which.map((k) => all[k]).filter(Boolean);
+    const items = which.map((k) => all[k]).filter((l) => !!l);
     if (!items.length) return "";
     return `<div class="win-actions">${items
       .map((l) => `<a class="px-btn" href="${esc(l.href)}"${l.ext ? ' target="_blank" rel="noopener noreferrer"' : ""}>${l.label}</a>`)
@@ -791,17 +842,16 @@
       ? `<img class="card-photo" src="${esc(P.photo)}" alt="Photo of ${esc(P.name)}">`
       : `<img class="card-photo px" src="${url(player.frames.down[0])}" alt="Pixel-art ${esc(P.firstName)}">`;
 
-  const WINDOWS = {
+  const WINDOWS: Record<Panel, (place?: Building) => WindowSpec> = {
     about() {
-      const facts = Object.entries(S.facts || {});
-      const label = (k) => k.replace(/_/g, " ").toUpperCase();
-      const plain = (v) => (Array.isArray(v) ? v.join(", ") : String(v));
-      const langs = (S.cv && S.cv.languages) || [];
+      const facts = Object.entries(S.facts);
+      const label = (k: string) => k.replace(/_/g, " ").toUpperCase();
+      const plain = (v: unknown) => (Array.isArray(v) ? v.join(", ") : String(v));
       return {
         title: "TRAINER CARD",
         html: `
           <article class="card">
-            <header class="card-head"><span>${esc(P.name)}</span><span>ID No.${esc(P.initials || "")}</span></header>
+            <header class="card-head"><span>${esc(P.name)}</span><span>ID No.${esc(P.initials)}</span></header>
             <div class="card-main">
               <dl class="card-facts">
                 ${facts.map(([k, v]) => `<div><dt>${esc(label(k))}</dt><dd>${esc(plain(v))}</dd></div>`).join("")}
@@ -809,19 +859,19 @@
               ${portrait()}
             </div>
             <ul class="badges" aria-label="Badges">
-              ${langs.map((l) => `<li class="badge"><b>${esc(l.name)}</b><small>${esc(l.level)}</small></li>`).join("")}
-              <li class="badge is-gold"><b>Quests</b><small>${save.visited.length} of ${buildings.length}</small></li>
+              ${S.cv.languages.map((l) => `<li class="badge"><b>${esc(l.name)}</b><small>${esc(l.level)}</small></li>`).join("")}
+              <li class="badge is-gold"><b>Quests</b><small>${visitedCount()} of ${buildings.length}</small></li>
               <li class="badge is-red"><b>Bugs</b><small>${save.squashed} squashed</small></li>
             </ul>
           </article>
-          <div class="prose">${(S.about || []).map((p) => `<p>${rich(p)}</p>`).join("")}</div>
+          <div class="prose">${S.about.map((p) => `<p>${rich(p)}</p>`).join("")}</div>
           ${links(["cv", "github", "linkedin"])}`,
       };
     },
 
     projects() {
-      const list = S.projects || [];
-      const intro = ((S.pages || {}).projects || {}).intro;
+      const list = S.projects;
+      const intro = S.pages.projects.intro;
       return {
         title: "CARTRIDGES",
         html: `
@@ -842,7 +892,7 @@
         setup(body) {
           const dex = $(".dex", body);
           const carts = $$(".cart", body);
-          const show = (i) => {
+          const show = (i: number) => {
             const p = list[i];
             carts.forEach((c, j) => c.setAttribute("aria-pressed", String(i === j)));
             dex.innerHTML = `
@@ -858,8 +908,10 @@
               </div>`;
           };
           carts.forEach((c) =>
-            c.addEventListener("click", () => {
-              show(+c.dataset.i);
+            on(c, "click", () => {
+              show(+c.dataset.i!);
+              // On narrow screens the dex sits below every cartridge.
+              dex.scrollIntoView({ block: "nearest", behavior: still ? "auto" : "smooth" });
               sfx("select");
             })
           );
@@ -869,22 +921,11 @@
     },
 
     quests(place) {
-      const cv = S.cv || {};
-      const groups = [
-        { id: "work", title: "WORK", list: cv.experience || [], fields: (e) => [e.role, e.org, e.bullets] },
-        { id: "education", title: "EDUCATION", list: cv.education || [], fields: (e) => [e.degree, e.school, e.details] },
-        ...(cv.sections || []).map((s, i) => ({
-          id: `more-${i}`,
-          title: String(s.title).toUpperCase(),
-          list: s.items || [],
-          fields: (e) => [e.role || e.title, e.org, e.bullets],
-        })),
-      ].filter((g) => g.list.length);
+      const groups = entryGroups("Work").map((g) => ({ ...g, title: g.title.toUpperCase() }));
       if (!groups.length) return { title: "QUEST LOG", html: "<p>No quests yet.</p>" };
-      const first = place && groups.some((g) => g.id === place.tab) ? place.tab : groups[0].id;
+      const first = place && groups.some((g) => g.id === place.tab) ? place.tab! : groups[0].id;
 
-      const quest = (e, fields) => {
-        const [title, org, items] = fields(e);
+      const quest = ({ entry: e, heading, org, bullets }: (typeof groups)[number]["items"][number]) => {
         const now = !e.end;
         return `
           <li class="quest" data-relevant="${e.relevant !== false}">
@@ -893,9 +934,9 @@
               ${e.relevant === false ? '<span class="quest-side">SIDE QUEST</span>' : ""}
               <span class="quest-date">${esc(dateRange(e))}</span>
             </p>
-            <h3 class="quest-title">${esc(title)}</h3>
+            <h3 class="quest-title">${esc(heading)}</h3>
             ${org || e.location ? `<p class="quest-org">${esc([org, e.location].filter(Boolean).join(" · "))}</p>` : ""}
-            ${items && items.length ? `<ul class="quest-steps">${items.map((b) => `<li>${esc(b)}</li>`).join("")}</ul>` : ""}
+            ${bullets.length ? `<ul class="quest-steps">${bullets.map((b) => `<li>${esc(b)}</li>`).join("")}</ul>` : ""}
           </li>`;
       };
 
@@ -912,14 +953,7 @@
             </div>
           </div>
           <p class="quest-count" aria-live="polite"></p>
-          ${groups
-            .map(
-              (g) => `
-            <ol class="quests" role="tabpanel" id="ql-${g.id}" aria-labelledby="tab-${g.id}">
-              ${[...g.list].sort(byRecent).map((e) => quest(e, g.fields)).join("")}
-            </ol>`
-            )
-            .join("")}
+          ${groups.map((g) => `<ol class="quests" role="tabpanel" id="ql-${g.id}" aria-labelledby="tab-${g.id}">${g.items.map(quest).join("")}</ol>`).join("")}
           ${links(["cv"])}`,
         setup(body) {
           let tab = first;
@@ -937,11 +971,12 @@
                 ? `All ${items.length} quests.`
                 : `${shown} main ${shown === 1 ? "quest" : "quests"}${side ? `. ${side} side ${side === 1 ? "quest is" : "quests are"} under ALL.` : "."}`;
           };
-          body.addEventListener("click", (e) => {
-            const t = e.target.closest("[data-tab]");
-            const f = e.target.closest("[data-view]");
-            if (t) tab = t.dataset.tab;
-            if (f) view = f.dataset.view;
+          on<"click">(body, "click", (e) => {
+            const target = e.target as Element;
+            const t = target.closest<HTMLElement>("[data-tab]");
+            const f = target.closest<HTMLElement>("[data-view]");
+            if (t) tab = t.dataset.tab!;
+            if (f) view = f.dataset.view!;
             if (t || f) {
               sfx("select");
               apply();
@@ -953,7 +988,7 @@
     },
 
     skills() {
-      const groups = (S.skills || []).filter((g) => g.items.length);
+      const groups = S.skills.filter((g) => g.items.length);
       return {
         title: "ITEM SHOP",
         html: `
@@ -984,15 +1019,15 @@
           </div>`,
         setup(body) {
           const info = $(".item-info", body);
-          const show = (btn) => {
+          const show = (btn: HTMLElement) => {
             $$(".slot", body).forEach((s) => s.setAttribute("aria-pressed", String(s === btn)));
-            const tool = btn.dataset.item;
+            const tool = btn.dataset.item!;
             const u = usesOf(tool);
             const rows = [
               u.work.length && ["WORK", u.work.map(esc).join(", ")],
               u.projects.length && ["PROJECTS", u.projects.map((p) => esc(p.name)).join(", ")],
               u.study.length && ["STUDY", u.study.map(esc).join(", ")],
-            ].filter(Boolean);
+            ].filter((r): r is string[] => !!r);
             info.innerHTML = `
               <p class="item-kind">${esc(btn.dataset.group)}</p>
               <h3 class="item-name">${esc(tool)}</h3>
@@ -1004,28 +1039,28 @@
               }`;
           };
           $$(".slot", body).forEach((s) =>
-            s.addEventListener("click", () => {
+            on(s, "click", () => {
               show(s);
               sfx("select");
             })
           );
-          const firstSlot = $(".slot", body);
+          const firstSlot = body.querySelector<HTMLElement>(".slot");
           if (firstSlot) show(firstSlot);
         },
       };
     },
 
     contact() {
-      const intro = ((S.pages || {}).contact || {}).intro;
-      const L = P.links || {};
+      const intro = S.pages.contact.intro;
+      const L = P.links;
       const rows = [
         P.email && { label: "EMAIL", value: P.email, href: `mailto:${P.email}`, copy: P.email },
         P.phone && { label: "PHONE", value: P.phone, href: telHref(P.phone), copy: P.phone },
         L.linkedin && { label: "LINKEDIN", value: prettyUrl(L.linkedin), href: L.linkedin, ext: true },
         L.github && { label: "GITHUB", value: prettyUrl(L.github), href: L.github, ext: true },
-        { label: "CV", value: "Read the full CV", href: "cv.html" },
+        { label: "CV", value: "Read the full CV", href: "/cv" },
         P.location && { label: "BASED IN", value: P.location },
-      ].filter(Boolean);
+      ].filter((r) => !!r) as { label: string; value: string; href?: string; copy?: string; ext?: boolean }[];
       return {
         title: "POST OFFICE",
         html: `
@@ -1052,8 +1087,8 @@
     },
 
     map() {
-      const spot = (x, y) => `left:${(x / MW) * 100}%;top:${(y / MH) * 100}%`;
-      const done = (b) => save.visited.includes(b.id);
+      const spot = (x: number, y: number) => `left:${(x / MW) * 100}%;top:${(y / MH) * 100}%`;
+      const done = (b: Building) => save.visited.includes(b.id);
       return {
         title: "TOWN MAP",
         html: `
@@ -1087,15 +1122,16 @@
           </div>
           ${links(["cv", "classic", "github", "linkedin"])}`,
         setup(body) {
-          $(".minimap canvas", body).getContext("2d").drawImage(baked().frames[0], 0, 0);
-          body.addEventListener("click", (e) => {
-            const go = e.target.closest("[data-go]");
-            const now = e.target.closest("[data-open]");
-            if (go && byId[go.dataset.go]) {
+          $<HTMLCanvasElement>(".minimap canvas", body).getContext("2d")!.drawImage(baked().frames[0], 0, 0);
+          on<"click">(body, "click", (e) => {
+            const target = e.target as Element;
+            const goEl = target.closest<HTMLElement>("[data-go]");
+            const now = target.closest<HTMLElement>("[data-open]");
+            if (goEl && byId[goEl.dataset.go!]) {
               closeWindow();
-              walkTo(byId[go.dataset.go]);
-            } else if (now && byId[now.dataset.open]) {
-              const b = byId[now.dataset.open];
+              walkTo(byId[goEl.dataset.go!]);
+            } else if (now && byId[now.dataset.open!]) {
+              const b = byId[now.dataset.open!];
               visit(b.id);
               openWindow(b.panel, b);
             }
@@ -1105,7 +1141,7 @@
     },
   };
 
-  function openWindow(kind, place) {
+  function openWindow(kind: Panel, place?: Building) {
     const w = WINDOWS[kind](place);
     winEl.dataset.kind = kind;
     winTitle.textContent = w.title;
@@ -1130,15 +1166,22 @@
     winBody.innerHTML = "";
     setMode("play");
     if (document.activeElement instanceof HTMLElement) document.activeElement.blur();
-    if (location.hash) history.replaceState(null, "", location.pathname + location.search);
+    if (location.hash) history.replaceState(history.state, "", location.pathname + location.search);
     sfx("close");
-    if (save.visited.length >= buildings.length && !save.done) finishTour();
+    if (visitedCount() >= buildings.length && !save.done) finishTour();
   }
 
-  $(".win-close", layer).addEventListener("click", closeWindow);
-  layer.addEventListener("click", (e) => e.target === layer && closeWindow());
+  on($(".win-close", layer), "click", closeWindow);
+  on<"click">(layer, "click", (e) => e.target === layer && closeWindow());
+  // The site's own pages open inside the app, without reloading it.
+  on<"click">(layer, "click", (e) => {
+    const a = (e.target as Element).closest<HTMLAnchorElement>('a[href^="/"]');
+    if (!a || e.ctrlKey || e.metaKey || e.shiftKey || e.button !== 0) return;
+    e.preventDefault();
+    go(a.getAttribute("href")!);
+  });
 
-  function trapFocus(e) {
+  function trapFocus(e: KeyboardEvent) {
     const items = $$("a[href], button:not([disabled])", winEl).filter((el) => el.offsetParent !== null);
     if (!items.length) return;
     const first = items[0];
@@ -1152,17 +1195,20 @@
     }
   }
 
-  function setupCopy(scope) {
+  function setupCopy(scope: HTMLElement) {
     $$("[data-copy]", scope).forEach((btn) => {
       const original = btn.textContent;
-      const done = (ok) => {
+      const done = (ok: boolean) => {
         btn.textContent = ok ? "COPIED" : "CTRL+C";
-        setTimeout(() => (btn.textContent = original), 2000);
+        later(() => (btn.textContent = original), 2000);
       };
-      btn.addEventListener("click", () => {
-        const text = btn.dataset.copy;
+      on(btn, "click", () => {
+        const text = btn.dataset.copy!;
         if (navigator.clipboard && window.isSecureContext) {
-          navigator.clipboard.writeText(text).then(() => done(true), () => done(false));
+          navigator.clipboard.writeText(text).then(
+            () => done(true),
+            () => done(false)
+          );
           return;
         }
         const ta = document.createElement("textarea");
@@ -1174,7 +1220,7 @@
         let ok = false;
         try {
           ok = document.execCommand("copy");
-        } catch (_) {
+        } catch {
           /* fall through to the manual hint */
         }
         ta.remove();
@@ -1188,13 +1234,13 @@
   const battleEl = $("#battle");
   const bText = $("#b-text");
   const bMenu = $("#b-menu");
-  let battleWait = null; // resolves when you press A after a line
+  let battleWait: (() => void) | null = null; // resolves when you press A after a line
   let battleTyping = false;
   let battleSkip = false;
   let battlePick = 0;
-  let menuWait = null;
+  let menuWait: ((choice: "fight" | "run") => void) | null = null;
 
-  async function bsay(text) {
+  async function bsay(text: string) {
     battleEl.classList.remove("is-done");
     battleTyping = true;
     if (still) bText.textContent = text;
@@ -1210,7 +1256,7 @@
     battleTyping = false;
     battleSkip = false;
     battleEl.classList.add("is-done");
-    await new Promise((resolve) => (battleWait = resolve));
+    await new Promise<void>((resolve) => (battleWait = resolve));
   }
 
   function battleA() {
@@ -1241,8 +1287,8 @@
     $$("button", bMenu).forEach((b, i) => b.setAttribute("aria-selected", String(i === battlePick)));
   }
 
-  function pickMenu(i) {
-    const r = menuWait;
+  function pickMenu(i: number) {
+    const r = menuWait!;
     menuWait = null;
     bMenu.hidden = true;
     battleEl.classList.remove("is-asking");
@@ -1250,13 +1296,13 @@
     r(i === 0 ? "fight" : "run");
   }
 
-  bMenu.addEventListener("click", (e) => {
-    const b = e.target.closest("button");
+  on<"click">(bMenu, "click", (e) => {
+    const b = (e.target as Element).closest("button");
     if (b && menuWait) pickMenu($$("button", bMenu).indexOf(b));
   });
-  $(".b-box", battleEl).addEventListener("click", (e) => !e.target.closest("button") && battleA());
+  on<"click">($(".b-box", battleEl), "click", (e) => !(e.target as Element).closest("button") && battleA());
 
-  function setHp(v) {
+  function setHp(v: number) {
     const bar = $("#b-foe-hp");
     bar.style.width = `${Math.round(v * 100)}%`;
     bar.dataset.level = v > 0.5 ? "high" : v > 0.2 ? "mid" : "low";
@@ -1277,8 +1323,8 @@
       await wait(760);
     }
     $("#b-foe-name").textContent = bug.name;
-    $("#b-foe-img").src = url(ART.bug(bug.color[0], bug.color[1]));
-    $("#b-me-img").src = url(player.frames.up[0]);
+    $<HTMLImageElement>("#b-foe-img").src = url(ART.bug(bug.color[0], bug.color[1]));
+    $<HTMLImageElement>("#b-me-img").src = url(player.frames.up[0]);
     $(".b-name.is-me", battleEl).textContent = NAME;
     setHp(1);
     battleEl.className = "battle";
@@ -1291,7 +1337,7 @@
     battlePick = 0;
     paintMenu();
     bMenu.hidden = false;
-    const choice = await new Promise((resolve) => (menuWait = resolve));
+    const choice = await new Promise<"fight" | "run">((resolve) => (menuWait = resolve));
 
     if (choice === "run") {
       await bsay("Got away safely!");
@@ -1331,12 +1377,18 @@
   /* ── Sound ───────────────────────────────────────────────────────────── */
   // Off until you turn it on. Square-wave blips, plus a little town theme.
 
-  const audio = { ctx: null, out: null, on: !!save.sound, next: 0, beat: 0 };
+  const audio: { ctx: AudioContext | null; out: GainNode | null; on: boolean; next: number; beat: number } = {
+    ctx: null,
+    out: null,
+    on: !!save.sound,
+    next: 0,
+    beat: 0,
+  };
 
   function ensureAudio() {
     if (!audio.on) return;
     if (!audio.ctx) {
-      const AC = window.AudioContext || window.webkitAudioContext;
+      const AC = window.AudioContext || (window as unknown as { webkitAudioContext?: typeof AudioContext }).webkitAudioContext;
       if (!AC) return;
       audio.ctx = new AC();
       audio.out = audio.ctx.createGain();
@@ -1346,8 +1398,8 @@
     if (audio.ctx.state === "suspended") audio.ctx.resume();
   }
 
-  function tone(freq, start, dur, type = "square", vol = 0.04, slideTo = 0) {
-    const ctx = audio.ctx;
+  function tone(freq: number, start: number, dur: number, type: OscillatorType = "square", vol = 0.04, slideTo = 0) {
+    const ctx = audio.ctx!;
     const o = ctx.createOscillator();
     const g = ctx.createGain();
     o.type = type;
@@ -1355,31 +1407,31 @@
     if (slideTo) o.frequency.exponentialRampToValueAtTime(slideTo, start + dur);
     g.gain.setValueAtTime(vol, start);
     g.gain.exponentialRampToValueAtTime(0.0001, start + dur);
-    o.connect(g).connect(audio.out);
+    o.connect(g).connect(audio.out!);
     o.start(start);
     o.stop(start + dur + 0.02);
   }
 
   const SFX = {
-    blip: (t) => tone(880, t, 0.03, "square", 0.02),
-    select: (t) => {
+    blip: (t: number) => tone(880, t, 0.03, "square", 0.02),
+    select: (t: number) => {
       tone(660, t, 0.05);
       tone(990, t + 0.05, 0.06);
     },
-    open: (t) => tone(523, t, 0.06, "square", 0.03, 1046),
-    close: (t) => tone(784, t, 0.06, "square", 0.03, 392),
-    door: (t) => [523, 659, 784].forEach((f, i) => tone(f, t + i * 0.06, 0.08)),
-    bump: (t) => tone(110, t, 0.08, "square", 0.05),
-    grass: (t) => tone(300, t, 0.03, "triangle", 0.04, 120),
-    encounter: (t) => {
+    open: (t: number) => tone(523, t, 0.06, "square", 0.03, 1046),
+    close: (t: number) => tone(784, t, 0.06, "square", 0.03, 392),
+    door: (t: number) => [523, 659, 784].forEach((f, i) => tone(f, t + i * 0.06, 0.08)),
+    bump: (t: number) => tone(110, t, 0.08, "square", 0.05),
+    grass: (t: number) => tone(300, t, 0.03, "triangle", 0.04, 120),
+    encounter: (t: number) => {
       for (let i = 0; i < 8; i++) tone(988 - i * 70, t + i * 0.05, 0.06, "square", 0.035);
     },
-    hit: (t) => tone(220, t, 0.18, "sawtooth", 0.05, 55),
-    win: (t) => [523, 659, 784, 1047].forEach((f, i) => tone(f, t + i * 0.09, i === 3 ? 0.35 : 0.1)),
-    star: (t) => [784, 988, 1175, 1568].forEach((f, i) => tone(f, t + i * 0.08, i === 3 ? 0.4 : 0.1)),
+    hit: (t: number) => tone(220, t, 0.18, "sawtooth", 0.05, 55),
+    win: (t: number) => [523, 659, 784, 1047].forEach((f, i) => tone(f, t + i * 0.09, i === 3 ? 0.35 : 0.1)),
+    star: (t: number) => [784, 988, 1175, 1568].forEach((f, i) => tone(f, t + i * 0.08, i === 3 ? 0.4 : 0.1)),
   };
 
-  function sfx(name) {
+  function sfx(name: keyof typeof SFX) {
     if (!audio.on || !audio.ctx || audio.ctx.state !== "running") return;
     SFX[name](audio.ctx.currentTime + 0.01);
   }
@@ -1390,7 +1442,7 @@
     tune: [76, 0, 79, 0, 81, 0, 79, 0, 74, 0, 79, 0, 83, 0, 81, 0, 81, 0, 79, 0, 76, 0, 72, 0, 77, 0, 76, 0, 74, 0, 0, 0],
   };
   const EIGHTH = 60 / 112 / 2;
-  const hz = (n) => 440 * Math.pow(2, (n - 69) / 12);
+  const hz = (n: number) => 440 * Math.pow(2, (n - 69) / 12);
 
   function playMusic() {
     const ctx = audio.ctx;
@@ -1428,9 +1480,9 @@
   /* ── HUD, prompt and toasts ──────────────────────────────────────────── */
 
   function renderHud() {
-    $("#quest-count").textContent = `${save.visited.length}/${buildings.length}`;
+    $("#quest-count").textContent = `${visitedCount()}/${buildings.length}`;
     $("#quest-stars").innerHTML = buildings.map((b) => `<i class="${save.visited.includes(b.id) ? "on" : ""}"></i>`).join("");
-    $("#bug-count").textContent = save.squashed;
+    $("#bug-count").textContent = String(save.squashed);
     const nightBtn = $("[data-act='night']");
     nightBtn.textContent = night ? "DAY" : "NIGHT";
     nightBtn.setAttribute("aria-label", night ? "Switch to day" : "Switch to night");
@@ -1439,8 +1491,8 @@
     soundBtn.setAttribute("aria-pressed", String(audio.on));
   }
 
-  $("#hud").addEventListener("click", (e) => {
-    const b = e.target.closest("[data-act]");
+  on<"click">($("#hud"), "click", (e) => {
+    const b = (e.target as Element).closest<HTMLElement>("[data-act]");
     if (!b) return;
     const act = b.dataset.act;
     if (act === "map" && mode === "play") openWindow("map");
@@ -1463,13 +1515,13 @@
     prompt.hidden = !text;
     if (text) prompt.innerHTML = `<kbd>${touch ? "A" : "SPACE"}</kbd>${esc(text)}`;
   }
-  prompt.addEventListener("click", () => {
+  on(prompt, "click", () => {
     interactFront();
     prompt.blur();
   });
 
   let toastTimer = 0;
-  function toast(title, text) {
+  function toast(title: string, text: string) {
     const el = $("#toast");
     el.innerHTML = `<b>${esc(title)}</b><span>${esc(text)}</span>`;
     el.hidden = false;
@@ -1477,22 +1529,22 @@
     void el.offsetWidth;
     el.classList.add("is-in");
     clearTimeout(toastTimer);
-    toastTimer = setTimeout(() => {
+    toastTimer = later(() => {
       el.classList.remove("is-in");
-      setTimeout(() => (el.hidden = true), 400);
+      later(() => (el.hidden = true), 400);
     }, 3800);
   }
 
   const fade = $("#fade");
   // A quick dip to black, doing `fn` while it's dark.
-  async function dip(fn) {
+  async function dip(fn?: () => void) {
     if (still) {
-      if (fn) fn();
+      fn?.();
       return;
     }
     fade.className = "fade is-on";
     await wait(180);
-    if (fn) fn();
+    fn?.();
     fade.className = "fade";
     await wait(200);
   }
@@ -1500,18 +1552,18 @@
   /* ── Touch controls ──────────────────────────────────────────────────── */
 
   $$(".pad [data-dir]").forEach((btn) => {
-    const dir = btn.dataset.dir;
-    btn.addEventListener("pointerdown", (e) => {
+    const dir = btn.dataset.dir as Dir;
+    on<"pointerdown">(btn, "pointerdown", (e) => {
       e.preventDefault();
       btn.setPointerCapture(e.pointerId);
       if (mode === "play") press(dir);
       else if (mode === "talk" && (dir === "up" || dir === "down")) moveChoice(dir === "up" ? -1 : 1);
       else if (mode === "battle") battleMove();
     });
-    ["pointerup", "pointercancel", "lostpointercapture"].forEach((type) => btn.addEventListener(type, () => release(dir)));
+    ["pointerup", "pointercancel", "lostpointercapture"].forEach((type) => on(btn, type, () => release(dir)));
   });
-  $("#btn-a").addEventListener("click", pressA);
-  $("#btn-b").addEventListener("click", pressB);
+  on($("#btn-a"), "click", pressA);
+  on($("#btn-b"), "click", pressB);
 
   /* ── The world moving ────────────────────────────────────────────────── */
 
@@ -1534,7 +1586,7 @@
     const dir = held[held.length - 1];
     if (!dir) return false;
     // A quick tap turns you on the spot, like the old games.
-    if (dir !== player.dir && idle > 0.15 && performance.now() - pressedAt[dir] < 110) {
+    if (dir !== player.dir && idle > 0.15 && performance.now() - (pressedAt[dir] || 0) < 110) {
       player.dir = dir;
       return false;
     }
@@ -1550,7 +1602,7 @@
   }
 
   // Walking into a door opens it.
-  function bump(dir) {
+  function bump(dir: Dir) {
     const [dx, dy] = DIRS[dir];
     const b = buildingOf(player.x + dx, player.y + dy);
     if (b && dir === "up" && b.door.x === player.x && b.door.y === player.y - 1) {
@@ -1578,13 +1630,13 @@
     }
   }
 
-  function wander(n, dt) {
+  function wander(n: Npc, dt: number) {
     advance(n, dt);
     if (n.moving || n.talking || !n.def.wander) return;
     n.idle -= dt;
     if (n.idle > 0) return;
     n.idle = 1.2 + Math.random() * 3;
-    const dir = Object.keys(DIRS)[(Math.random() * 4) | 0];
+    const dir = (Object.keys(DIRS) as Dir[])[(Math.random() * 4) | 0];
     const [x0, y0, x1, y1] = n.def.wander;
     const nx = n.x + DIRS[dir][0];
     const ny = n.y + DIRS[dir][1];
@@ -1594,10 +1646,11 @@
 
   /* ── Little things: smoke, leaves, butterflies, fireflies, clouds ────── */
 
-  const parts = [];
+  type Part = { x: number; y: number; vx: number; vy: number; age: number; life: number; color?: string; leaf?: boolean; smoke?: boolean };
+  const parts: Part[] = [];
   let smokeIn = 0;
 
-  function rustle(x, y) {
+  function rustle(x: number, y: number) {
     if (still) return;
     for (let i = 0; i < 5; i++) {
       parts.push({
@@ -1613,7 +1666,7 @@
     }
   }
 
-  function updateParts(dt) {
+  function updateParts(dt: number) {
     smokeIn -= dt;
     if (smokeIn <= 0 && !still) {
       smokeIn = 0.5;
@@ -1634,18 +1687,18 @@
     }
   }
 
-  function drawParts(cx, cy) {
+  function drawParts(cx: number, cy: number) {
     for (const p of parts) {
       const k = 1 - p.age / p.life;
       vg.globalAlpha = p.smoke ? k * 0.75 : k;
-      vg.fillStyle = p.smoke ? (night ? C.slate : C.white) : p.color;
+      vg.fillStyle = p.smoke ? (night ? C.slate : C.white) : p.color!;
       const size = p.smoke ? (p.age > p.life * 0.4 ? 3 : 2) : 1;
       vg.fillRect(Math.round(p.x - cx), Math.round(p.y - cy), size, size);
     }
     vg.globalAlpha = 1;
   }
 
-  const pick = (list, i) => list[(i * 7919) % list.length];
+  const pick = <V>(list: V[], i: number) => list[(i * 7919) % list.length];
   const butterflies = flowerTiles.length
     ? Array.from({ length: 7 }, (_, i) => {
         const t = pick(flowerTiles, i + 1);
@@ -1663,20 +1716,20 @@
     { x: 560, y: 150, s: 0.85 },
   ].map((c) => {
     const r = Math.round(26 * c.s);
-    const canvas = document.createElement("canvas");
-    canvas.width = r * 4;
-    canvas.height = r * 2;
-    const g = canvas.getContext("2d");
+    const cv = document.createElement("canvas");
+    cv.width = r * 4;
+    cv.height = r * 2;
+    const g = cv.getContext("2d")!;
     g.fillStyle = C.ink;
     [[r, r, r * 0.8], [r * 2, r * 0.8, r], [r * 3, r * 1.1, r * 0.7]].forEach(([x, y, rr]) => {
       g.beginPath();
       g.arc(x, y, rr, 0, Math.PI * 2);
       g.fill();
     });
-    return Object.assign(c, { canvas });
+    return { ...c, canvas: cv };
   });
 
-  function drawCritters(cx, cy) {
+  function drawCritters(cx: number, cy: number) {
     if (still) return;
     if (!night) {
       for (const b of butterflies) {
@@ -1696,11 +1749,11 @@
       for (const f of fireflies) {
         const x = Math.round(f.x + Math.sin(clock * 0.5 + f.a) * 22 - cx);
         const y = Math.round(f.y + Math.cos(clock * 0.37 + f.a) * 12 - cy);
-        const on = 0.5 + 0.5 * Math.sin(clock * 2.6 + f.a * 3);
-        vg.globalAlpha = on * 0.35;
+        const lit = 0.5 + 0.5 * Math.sin(clock * 2.6 + f.a * 3);
+        vg.globalAlpha = lit * 0.35;
         vg.fillStyle = C.lime;
         vg.fillRect(x - 1, y - 1, 3, 3);
-        vg.globalAlpha = on;
+        vg.globalAlpha = lit;
         vg.fillStyle = C.yellow;
         vg.fillRect(x, y, 1, 1);
       }
@@ -1708,7 +1761,7 @@
     }
   }
 
-  function updateClouds(dt) {
+  function updateClouds(dt: number) {
     if (still) return;
     for (const c of clouds) {
       c.x += dt * 5;
@@ -1718,7 +1771,7 @@
     }
   }
 
-  function drawNight(cx, cy) {
+  function drawNight(cx: number, cy: number) {
     const w = shade.width;
     const h = shade.height;
     hg.globalCompositeOperation = "source-over";
@@ -1772,9 +1825,9 @@
     return { x: p.x + 8 - view.width / 2, y: p.y + 8 - view.height / 2 };
   }
 
-  const fit = (v, size, total) => (size >= total ? (total - size) / 2 : clamp(v, 0, total - size));
+  const fit = (v: number, size: number, total: number) => (size >= total ? (total - size) / 2 : clamp(v, 0, total - size));
 
-  function updateCamera(dt, snap) {
+  function updateCamera(dt: number, snap = false) {
     const t = camTarget();
     const tx = fit(t.x, view.width, MW * T);
     const ty = fit(t.y, view.height, MH * T);
@@ -1784,14 +1837,14 @@
     cam.y += (ty - cam.y) * k;
   }
 
-  function frameOf(w) {
+  function frameOf(w: Walker) {
     const set = w.frames[w.dir];
     if (w.moving && w.t < 0.5) return set[w.step ? 1 : 3];
     if (w === player && w.dir === "down" && blink < 0) return w.frames.blink;
     return set[0];
   }
 
-  function drawWalker(w, cx, cy, frame) {
+  function drawWalker(w: Walker, cx: number, cy: number, frame: number) {
     const p = pos(w);
     const x = Math.round(p.x) - cx;
     const y = Math.round(p.y) - cy;
@@ -1859,7 +1912,7 @@
     sg.drawImage(view, 0, 0, screen.width, screen.height);
   }
 
-  function update(dt) {
+  function update(dt: number) {
     player.speed = route.length || goal ? 7 : running ? 8.5 : 4.6;
     const left = advance(player, dt);
     if (left >= 0) arrived();
@@ -1881,42 +1934,42 @@
   }
 
   let last = performance.now();
-  function loop(now) {
+  let raf = 0;
+  function loop(now: number) {
     // (The first frame's timestamp can be a little earlier than `last`.)
     const dt = clamp((now - last) / 1000, 0, 0.05);
     last = now;
     clock += dt;
     update(dt);
     render();
-    requestAnimationFrame(loop);
+    raf = requestAnimationFrame(loop);
   }
 
   /* ── Title screen ────────────────────────────────────────────────────── */
 
   const title = $("#title");
+  let avatarBlink = 0;
 
   function setupTitle() {
-    const [first, ...rest] = String(P.name).split(/\s+/);
-    $(".logo-main", title).innerHTML = [...first.toUpperCase()]
-      .map((ch, i) => `<span style="--i:${i}">${esc(ch)}</span>`)
-      .join("");
+    const [first, ...rest] = P.name.split(/\s+/);
+    $(".logo-main", title).innerHTML = [...first.toUpperCase()].map((ch, i) => `<span style="--i:${i}">${esc(ch)}</span>`).join("");
     $(".logo-sub", title).textContent = rest.join(" ").toUpperCase();
-    $(".title-role", title).textContent = String(P.role || "").toUpperCase();
+    $(".title-role", title).textContent = P.role.toUpperCase();
     $(".quest-label").textContent = `MEET ${NAME}`;
     $(".quest-chip").setAttribute("aria-label", `Quest: meet ${P.firstName}. Open the map.`);
     $(".bug-icon").style.backgroundImage = `url(${url(ART.bug(C.red, C.plum))})`;
-    const avatar = $("#title-avatar");
-    const open = url(player.frames.down[0]);
+    const avatar = $<HTMLImageElement>("#title-avatar");
+    const awake = url(player.frames.down[0]);
     const shut = url(player.frames.blink);
-    avatar.src = open;
+    avatar.src = awake;
     if (!still) {
-      setInterval(() => {
+      avatarBlink = window.setInterval(() => {
         avatar.src = shut;
-        setTimeout(() => (avatar.src = open), 140);
+        later(() => (avatar.src = awake), 140);
       }, 3200);
     }
-    $("#start").addEventListener("click", startGame);
-    $("#quick").addEventListener("click", () => {
+    on($("#start"), "click", startGame);
+    on($("#quick"), "click", () => {
       skipTitle();
       openWindow("map");
     });
@@ -1925,7 +1978,7 @@
   function hideTitle() {
     title.classList.add("is-gone");
     $("#hud").hidden = false;
-    setTimeout(() => (title.hidden = true), still ? 0 : 600);
+    later(() => (title.hidden = true), still ? 0 : 600);
     if (document.activeElement instanceof HTMLElement) document.activeElement.blur();
   }
 
@@ -1948,8 +2001,7 @@
     updateCamera(0, true);
   }
 
-  function openFromHash() {
-    const id = decodeURIComponent(location.hash.slice(1));
+  function openFromHash(id = decodeURIComponent(location.hash.slice(1))) {
     if (id === "map") {
       skipTitle();
       openWindow("map");
@@ -1965,18 +2017,31 @@
     return true;
   }
 
-  window.addEventListener("hashchange", () => {
+  on(window, "hashchange", () => {
+    // Read the hash first: closing a window clears it.
+    const id = decodeURIComponent(location.hash.slice(1));
     if (mode === "window") closeWindow();
-    if (mode === "play" || mode === "title") openFromHash();
+    if (mode === "play" || mode === "title") openFromHash(id);
   });
 
   /* ── Boot ────────────────────────────────────────────────────────────── */
 
   resize();
-  window.addEventListener("resize", resize);
+  on(window, "resize", resize);
   setMode("title");
   setupTitle();
   renderHud();
   if (!openFromHash()) updateCamera(0, true);
-  requestAnimationFrame(loop);
-})();
+  raf = requestAnimationFrame(loop);
+
+  return () => {
+    alive = false;
+    off.abort();
+    cancelAnimationFrame(raf);
+    clearInterval(avatarBlink);
+    timers.forEach(clearTimeout);
+    audio.ctx?.close();
+    html.classList.remove("touch");
+    delete document.body.dataset.mode;
+  };
+}

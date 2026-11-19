@@ -1,4 +1,4 @@
-/* Pixel Town (play.html): the retro interface around the game canvas.
+/* Pixel Town (/play): the retro interface around the game canvas.
    Title screen, HUD, text box, windows and the battle screen. The colours
    are the Sweetie 16 palette the pixel art uses (see play-art.js). */
 
@@ -45,6 +45,11 @@ body {
   color: var(--white);
   font: 400 20px/1.45 var(--body);
   -webkit-tap-highlight-color: transparent;
+  /* Text in the game can't be selected or copied (the COPY buttons in the
+     post office still work), and long-pressing doesn't open a menu. */
+  -webkit-user-select: none;
+  user-select: none;
+  -webkit-touch-callout: none;
 }
 
 a {
@@ -919,6 +924,9 @@ body:not([data-mode="play"]) .prompt {
 }
 
 .dex {
+  /* Stays in view beside a long column of cartridges. */
+  position: sticky;
+  top: 8px;
   min-height: 280px;
   margin: 8px;
   padding: 22px 24px 26px;
